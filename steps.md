@@ -203,8 +203,8 @@ typedef struct {
 
 1. [x] Step 1: 数据结构重构 (`OpMetadata`, `RuntimeState`)
 2. [x] Step 2: 就绪队列增强 (条件变量, 停机信号)
-3. [ ] Step 3: Worker 线程池实现
-4. [ ] Step 4: 主入口重写
+3. [x] Step 3: Worker 线程池实现 (单线程版完成，多线程待后续)
+4. [x] Step 4: 主入口重写
 5. [ ] Step 5: (可选) 异构扩展
 
 ---
