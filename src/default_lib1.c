@@ -6,26 +6,158 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdatomic.h>  // C11 原子操作
 #include <stdio.h>
 #include <pthread.h>
 
-
-// 定义队列大小
+// ============================================================
+// 常量定义
+// ============================================================
 #define MAX_QUEUE_SIZE 64
+#define MAX_NODES 64
+#define MAX_DEPS 8
+#define MAX_SUCCESSORS 8
+#define NUM_GRAPH_NODES 6    // 当前图的实际节点数
 
-// DAG 相关常量
-#define MAX_NODES 64       // 最大节点数
-#define MAX_DEPS 8         // 每个节点最大依赖数
-#define MAX_SUCCESSORS 8   // 每个节点最大后继数
-
+// ============================================================
+// 类型定义
+// ============================================================
 typedef int32_t (*operator_func_t)(void* args);
 
-// 算子任务结构体
+// 算子任务结构体 (兼容旧代码)
 typedef struct {
-    operator_func_t func;  // 算子函数指针
-    void* args;            // 算子参数
+    operator_func_t func;
+    void* args;
 } OperatorTask;
 
+// ============================================================
+// 静态图数据结构 (Step 1: 数据结构重构)
+// ============================================================
+
+// OpMetadata: 只读静态图节点描述
+typedef struct {
+    const char* name;                   // 调试用节点名称
+    operator_func_t func;               // 算子函数指针
+    void* args;                         // 参数指针
+    int32_t dep_count;                  // 原始入度
+    int32_t successor_count;            // 后继节点数量
+    int32_t successors[MAX_SUCCESSORS]; // 后继节点索引
+} OpMetadata;
+
+// RuntimeState: 运行时可变状态 (原子类型)
+typedef struct {
+    _Atomic int32_t remaining_deps;     // 剩余依赖数
+    _Atomic bool is_completed;          // 是否完成
+} RuntimeState;
+
+// ============================================================
+// 算子参数结构体 (提升到文件级)
+// ============================================================
+
+// fused_add 参数结构体
+typedef struct {
+    float* p0;
+    float* output;
+    uint8_t* const_ws;
+    uint8_t* ws;
+} FusedAddArgs;
+
+// fused_add_3 参数结构体 (双输入)
+typedef struct {
+    float* p0;
+    float* p1;
+    float* output;
+    uint8_t* const_ws;
+    uint8_t* ws;
+} FusedAdd3Args;
+
+// ============================================================
+// 包装函数前置声明
+// ============================================================
+int32_t wrapped_fused_add(void* args);
+int32_t wrapped_fused_add_1(void* args);
+int32_t wrapped_fused_add_2(void* args);
+int32_t wrapped_fused_add_3(void* args);
+int32_t wrapped_fused_subtract(void* args);
+int32_t wrapped_fused_subtract_1(void* args);
+
+// ============================================================
+// 全局参数变量 (静态分配，可在编译期获取地址)
+// ============================================================
+static FusedAddArgs g_args_node0;   // fused_add
+static FusedAddArgs g_args_node1;   // fused_subtract
+static FusedAddArgs g_args_node2;   // fused_add_1
+static FusedAddArgs g_args_node3;   // fused_subtract_1
+static FusedAddArgs g_args_node4;   // fused_add_2
+static FusedAdd3Args g_args_node5;  // fused_add_3
+
+// ============================================================
+// 静态图表定义 (编译期常量)
+// ============================================================
+// 依赖关系:
+//   n0 (fused_add)     -> n1 (fused_subtract)
+//   n2 (fused_add_1)   -> n3 (fused_subtract_1) -> n4 (fused_add_2)
+//   n1 + n4            -> n5 (fused_add_3)
+
+static const OpMetadata g_graph_nodes[NUM_GRAPH_NODES] = {
+    // Node 0: fused_add(input, sid_1) -> input + 1.0
+    {
+        .name = "fused_add_0",
+        .func = wrapped_fused_add,
+        .args = &g_args_node0,
+        .dep_count = 0,
+        .successor_count = 1,
+        .successors = {1}
+    },
+    // Node 1: fused_subtract(sid_1, sid_2) -> sid_1 - 2.0
+    {
+        .name = "fused_subtract_0",
+        .func = wrapped_fused_subtract,
+        .args = &g_args_node1,
+        .dep_count = 1,
+        .successor_count = 1,
+        .successors = {5}
+    },
+    // Node 2: fused_add_1(input, sid_3) -> input + 3.0
+    {
+        .name = "fused_add_1",
+        .func = wrapped_fused_add_1,
+        .args = &g_args_node2,
+        .dep_count = 0,
+        .successor_count = 1,
+        .successors = {3}
+    },
+    // Node 3: fused_subtract_1(sid_3, sid_4) -> sid_3 - 4.0
+    {
+        .name = "fused_subtract_1",
+        .func = wrapped_fused_subtract_1,
+        .args = &g_args_node3,
+        .dep_count = 1,
+        .successor_count = 1,
+        .successors = {4}
+    },
+    // Node 4: fused_add_2(sid_4, sid_5) -> sid_4 + 5.0
+    {
+        .name = "fused_add_2",
+        .func = wrapped_fused_add_2,
+        .args = &g_args_node4,
+        .dep_count = 1,
+        .successor_count = 1,
+        .successors = {5}
+    },
+    // Node 5: fused_add_3(sid_2, sid_5, output) -> sid_2 + sid_5
+    {
+        .name = "fused_add_3",
+        .func = wrapped_fused_add_3,
+        .args = &g_args_node5,
+        .dep_count = 2,
+        .successor_count = 0,
+        .successors = {}
+    }
+};
+
+// 运行时状态数组
+static RuntimeState g_runtime_state[NUM_GRAPH_NODES];
 // DAG 节点结构体
 typedef struct {
     int32_t id;                         // 节点 ID
@@ -136,7 +268,7 @@ void dag_destroy(DAG* dag) {
 }
 
 // ============================================================
-// 节点就绪队列 (存储节点 ID，线程安全)
+// 节点就绪队列 (线程安全，支持阻塞等待)
 // ============================================================
 typedef struct {
     int32_t node_ids[MAX_NODES];        // 存储就绪节点 ID
@@ -144,20 +276,27 @@ typedef struct {
     int32_t tail;
     int32_t count;
     pthread_mutex_t mutex;
+    pthread_cond_t cond;                // 条件变量：队列非空时唤醒
+    bool shutdown;                      // 停机标志
 } NodeQueue;
 
-// 节点队列操作函数
+// 初始化队列
 void node_queue_init(NodeQueue* q) {
     q->head = 0;
     q->tail = 0;
     q->count = 0;
+    q->shutdown = false;
     pthread_mutex_init(&q->mutex, NULL);
+    pthread_cond_init(&q->cond, NULL);
 }
 
+// 销毁队列
 void node_queue_destroy(NodeQueue* q) {
     pthread_mutex_destroy(&q->mutex);
+    pthread_cond_destroy(&q->cond);
 }
 
+// 入队：添加节点并唤醒等待的 Worker
 int32_t node_queue_push(NodeQueue* q, int32_t node_id) {
     pthread_mutex_lock(&q->mutex);
     if (q->count >= MAX_NODES) {
@@ -168,10 +307,12 @@ int32_t node_queue_push(NodeQueue* q, int32_t node_id) {
     q->node_ids[q->tail] = node_id;
     q->tail = (q->tail + 1) % MAX_NODES;
     q->count++;
+    pthread_cond_signal(&q->cond);  // 唤醒一个等待的 Worker
     pthread_mutex_unlock(&q->mutex);
     return 0;
 }
 
+// 非阻塞出队（兼容旧代码）
 int32_t node_queue_pop(NodeQueue* q, int32_t* out_node_id) {
     pthread_mutex_lock(&q->mutex);
     if (q->count == 0) {
@@ -183,6 +324,48 @@ int32_t node_queue_pop(NodeQueue* q, int32_t* out_node_id) {
     q->count--;
     pthread_mutex_unlock(&q->mutex);
     return 0;
+}
+
+// 阻塞出队：等待直到队列非空或收到停机信号
+// 返回: 0=成功取出, -1=收到停机信号
+int32_t node_queue_pop_blocking(NodeQueue* q, int32_t* out_node_id) {
+    pthread_mutex_lock(&q->mutex);
+    
+    // 等待队列非空或停机
+    while (q->count == 0 && !q->shutdown) {
+        pthread_cond_wait(&q->cond, &q->mutex);
+    }
+    
+    // 检查是否是停机信号
+    if (q->shutdown && q->count == 0) {
+        pthread_mutex_unlock(&q->mutex);
+        return -1;  // 停机退出
+    }
+    
+    // 正常出队
+    *out_node_id = q->node_ids[q->head];
+    q->head = (q->head + 1) % MAX_NODES;
+    q->count--;
+    pthread_mutex_unlock(&q->mutex);
+    return 0;
+}
+
+// 发送停机信号：唤醒所有等待的 Worker
+void node_queue_shutdown(NodeQueue* q) {
+    pthread_mutex_lock(&q->mutex);
+    q->shutdown = true;
+    pthread_cond_broadcast(&q->cond);  // 唤醒所有等待的线程
+    pthread_mutex_unlock(&q->mutex);
+}
+
+// 重置队列（用于下一次推理）
+void node_queue_reset(NodeQueue* q) {
+    pthread_mutex_lock(&q->mutex);
+    q->head = 0;
+    q->tail = 0;
+    q->count = 0;
+    q->shutdown = false;
+    pthread_mutex_unlock(&q->mutex);
 }
 
 // ============================================================
@@ -319,23 +502,7 @@ int32_t run(TaskQueue* q) {
 // ============================================================
 // 原始 fused 算子实现
 // ============================================================
-
-// fused_add 参数结构体
-typedef struct {
-    float* p0;
-    float* output;
-    uint8_t* const_ws;
-    uint8_t* ws;
-} FusedAddArgs;
-
-// fused_add_3 参数结构体 (双输入)
-typedef struct {
-    float* p0;
-    float* p1;
-    float* output;
-    uint8_t* const_ws;
-    uint8_t* ws;
-} FusedAdd3Args;
+// 注: FusedAddArgs 和 FusedAdd3Args 已在文件前部定义
 
 #ifdef __cplusplus
 extern "C"
