@@ -1,247 +1,251 @@
-# TVM Demo 程序运行逻辑说明
+# TVM Runtime 模块化架构文档
 
-## 整体架构
+## 1. 项目目录结构
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        编译期 (静态)                              │
-├─────────────────────────────────────────────────────────────────┤
-│  g_graph_nodes[6]          静态图定义 (OpMetadata)              │
-│  ├── Node 0: fused_add       (入度=0, 后继=[1])                 │
-│  ├── Node 1: fused_subtract  (入度=1, 后继=[5])                 │
-│  ├── Node 2: fused_add_1     (入度=0, 后继=[3])                 │
-│  ├── Node 3: fused_subtract_1(入度=1, 后继=[4])                 │
-│  ├── Node 4: fused_add_2     (入度=1, 后继=[5])                 │
-│  └── Node 5: fused_add_3     (入度=2, 后继=[])                  │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        运行期 (动态)                              │
-├─────────────────────────────────────────────────────────────────┤
-│  1. 初始化全局参数 (g_args_node0~5)                              │
-│  2. 初始化运行时状态 (g_runtime_state, 重置 remaining_deps)      │
-│  3. 拓扑排序执行 (Kahn 算法)                                     │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 数据结构
-
-### OpMetadata (只读，编译期常量)
-```c
-typedef struct {
-    const char* name;           // 调试用节点名称
-    operator_func_t func;       // 算子函数指针
-    void* args;                 // 参数指针
-    int32_t dep_count;          // 原始入度
-    int32_t successor_count;    // 后继节点数量
-    int32_t successors[];       // 后继节点索引
-} OpMetadata;
-```
-
-### RuntimeState (运行时可变，原子类型)
-```c
-typedef struct {
-    _Atomic int32_t remaining_deps;  // 剩余未完成的依赖数
-    _Atomic bool is_completed;       // 是否已执行完成
-} RuntimeState;
+tvm_demo/
+├── include/
+│   └── tvmgen_default.h       # TVM 生成的公共头文件
+├── src/
+│   ├── main.c                 # 程序入口
+│   ├── default_lib0.c         # Workspace 分配 + 运行入口
+│   ├── default_lib1.c         # 模块化入口 (调用 Runtime 模块)
+│   ├── default_lib1_legacy.c  # [备份] 原始 BSP 实现
+│   ├── runtime/               # Runtime 核心模块
+│   │   ├── tvmrt_types.h      # 公共类型定义
+│   │   ├── tvmrt_port.h       # OS 抽象层接口
+│   │   ├── tvmrt_port_posix.c # POSIX 实现
+│   │   ├── tvmrt_port_single.c# 单线程 fallback
+│   │   ├── tvmrt_log.h        # 日志接口
+│   │   ├── tvmrt_log.c        # 日志实现
+│   │   ├── tvmrt_semantic.h   # 语义转换层接口
+│   │   ├── tvmrt_semantic.c   # 语义转换层实现
+│   │   ├── tvmrt_engine.h     # 调度引擎接口
+│   │   └── tvmrt_engine.c     # BSP 调度引擎实现
+│   ├── model/                 # 模型描述模块
+│   │   ├── model_desc.h       # 模型描述接口
+│   │   └── model_desc.c       # 静态描述表 (编译器生成)
+│   └── ops/                   # 算子模块
+│       └── default_ops.c      # TVM 生成的 fused 算子
+└── Makefile
 ```
 
 ---
 
-## 执行流程
+## 2. 各文件内容概述
 
-### 1. 入口函数 `tvmgen_default___tvm_main__`
+### 2.1 入口文件
 
-```
-输入: input_buffer (10.0), output_buffer, 常量/工作空间
-      │
-      ▼
-┌─────────────────────────────────────┐
-│ 1. 计算中间缓冲区指针                │
-│    sid_1, sid_2, sid_3, sid_4, sid_5│
-└─────────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────────┐
-│ 2. 初始化全局参数 g_args_node0~5    │
-│    填充每个算子的 p0, output 等指针 │
-└─────────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────────┐
-│ 3. 调用 static_graph_run()          │
-└─────────────────────────────────────┘
-```
-
-### 2. 拓扑排序执行 `static_graph_run`
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ Step 1: 初始化运行时状态                                         │
-│   for each node:                                                │
-│     remaining_deps = dep_count (从静态图复制)                    │
-│     is_completed = false                                        │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ Step 2: 将入度为 0 的节点入队                                    │
-│   Node 0 (fused_add)    → 入队                                  │
-│   Node 2 (fused_add_1)  → 入队                                  │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ Step 3: Kahn 算法主循环                                         │
-│   while (队列非空):                                              │
-│     1. 取出节点 node_id                                         │
-│     2. 执行算子: node->func(node->args)                         │
-│     3. 标记完成: is_completed = true                            │
-│     4. 遍历后继节点:                                             │
-│        - remaining_deps--                                       │
-│        - 如果 remaining_deps == 0，入队                         │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 具体执行顺序
-
-```
-执行顺序 (一种可能的拓扑序):
-
-1. Node 0: fused_add      | input (10.0) + 1.0 = 11.0 → sid_1
-2. Node 2: fused_add_1    | input (10.0) + 3.0 = 13.0 → sid_3
-3. Node 1: fused_subtract | sid_1 (11.0) - 2.0 = 9.0  → sid_2
-4. Node 3: fused_subtract_1| sid_3 (13.0) - 4.0 = 9.0 → sid_4
-5. Node 4: fused_add_2    | sid_4 (9.0) + 5.0 = 14.0  → sid_5
-6. Node 5: fused_add_3    | sid_2 (9.0) + sid_5 (14.0) = 23.0 → output
-```
-
----
-
-## 依赖关系图
-
-```
-        input (10.0)
-           │
-     ┌─────┴─────┐
-     ▼           ▼
-  Node 0      Node 2
-  (+1.0)      (+3.0)
-     │           │
-     ▼           ▼
-  sid_1       sid_3
-  (11.0)      (13.0)
-     │           │
-     ▼           ▼
-  Node 1      Node 3
-  (-2.0)      (-4.0)
-     │           │
-     ▼           ▼
-  sid_2       sid_4
-  (9.0)       (9.0)
-     │           │
-     │           ▼
-     │        Node 4
-     │        (+5.0)
-     │           │
-     │           ▼
-     │        sid_5
-     │        (14.0)
-     │           │
-     └─────┬─────┘
-           ▼
-        Node 5
-     (sid_2 + sid_5)
-           │
-           ▼
-       output
-       (23.0)
-```
-
----
-
-## 函数调用顺序
-
-```
-main() [main.c]
-  │
-  └──► tvmgen_default_run() [default_lib0.c]
-        │
-        └──► tvmgen_default___tvm_main__() [default_lib1.c:428]
-              │
-              ├── 1. 计算中间缓冲区指针 (sid_1 ~ sid_5)
-              │
-              ├── 2. node_queue_init(&g_ready_queue) [首次调用]
-              │
-              ├── 3. 初始化全局参数:
-              │      g_args_node0 = {input, sid_1, const_ws, ws}
-              │      g_args_node1 = {sid_1, sid_2, ...}
-              │      g_args_node2 = {input, sid_3, ...}
-              │      g_args_node3 = {sid_3, sid_4, ...}
-              │      g_args_node4 = {sid_4, sid_5, ...}
-              │      g_args_node5 = {sid_2, sid_5, output, ...}
-              │
-              └──► 4. static_graph_run() [default_lib1.c:280]
-                    │
-                    ├── node_queue_reset(&g_ready_queue)
-                    │
-                    ├── static_graph_init_runtime()
-                    │     │
-                    │     └── for i in 0..5:
-                    │           g_runtime_state[i].remaining_deps = g_graph_nodes[i].dep_count
-                    │           g_runtime_state[i].is_completed = false
-                    │
-                    ├── 入队入度=0的节点:
-                    │     node_queue_push(0)  // fused_add
-                    │     node_queue_push(2)  // fused_add_1
-                    │
-                    └── Kahn 算法主循环:
-                          │
-                          ├── node_queue_pop() → node_id=0
-                          │     └── g_graph_nodes[0].func(args)
-                          │           └── wrapped_fused_add()
-                          │                 └── tvmgen_default_fused_add()
-                          │     更新后继: node 1 的 remaining_deps--
-                          │
-                          ├── node_queue_pop() → node_id=2
-                          │     └── wrapped_fused_add_1()
-                          │           └── tvmgen_default_fused_add_1()
-                          │     更新后继: node 3 的 remaining_deps-- → 入队
-                          │
-                          ├── node_queue_pop() → node_id=1
-                          │     └── wrapped_fused_subtract()
-                          │           └── tvmgen_default_fused_subtract()
-                          │     更新后继: node 5 的 remaining_deps--
-                          │
-                          ├── node_queue_pop() → node_id=3
-                          │     └── wrapped_fused_subtract_1()
-                          │           └── tvmgen_default_fused_subtract_1()
-                          │     更新后继: node 4 的 remaining_deps-- → 入队
-                          │
-                          ├── node_queue_pop() → node_id=4
-                          │     └── wrapped_fused_add_2()
-                          │           └── tvmgen_default_fused_add_2()
-                          │     更新后继: node 5 的 remaining_deps-- → 入队
-                          │
-                          └── node_queue_pop() → node_id=5
-                                └── wrapped_fused_add_3()
-                                      └── tvmgen_default_fused_add_3()
-                                执行完毕，返回 0
-```
-
----
-
-## 关键函数
-
-| 函数 | 作用 |
+| 文件 | 内容 |
 |------|------|
-| `static_graph_init_runtime()` | 重置所有节点的 `remaining_deps` 为静态 `dep_count` |
-| `static_graph_run()` | 按拓扑序执行所有节点，返回 0 表示成功 |
-| `node_queue_push()` | 将就绪节点入队 |
-| `node_queue_pop()` | 取出就绪节点执行 |
-| `wrapped_fused_*()` | 包装函数，统一算子接口 |
+| `main.c` | 测试程序入口，准备输入输出调用 `tvmgen_default_run()` |
+| `default_lib0.c` | 静态分配 workspace + 常量区，提供 `tvmgen_default_run()` |
+| `default_lib1.c` | 模块化入口，调用 Runtime 模块执行模型 |
+
+### 2.2 Runtime 模块
+
+| 文件 | 内容 |
+|------|------|
+| `tvmrt_types.h` | 公共类型定义（后端类型、Tensor 映射、算子描述、调度层、运行时上下文） |
+| `tvmrt_port.h` | OS 抽象层接口（mutex、cond、thread、barrier） |
+| `tvmrt_port_posix.c` | POSIX pthread 实现 |
+| `tvmrt_port_single.c` | 单线程空实现 |
+| `tvmrt_log.h/c` | 日志机制（Ring Buffer + 回调模式） |
+| `tvmrt_semantic.h/c` | 语义转换层（解析模型描述符，组装可执行算子） |
+| `tvmrt_engine.h/c` | BSP 调度引擎（层间屏障同步，层内并行执行） |
+
+### 2.3 Model 模块
+
+| 文件 | 内容 |
+|------|------|
+| `model_desc.h` | 模型描述接口 + 参数结构体定义 |
+| `model_desc.c` | 静态描述表（Tensor 映射、算子描述、调度表、函数表） |
+
+### 2.4 Ops 模块
+
+| 文件 | 内容 |
+|------|------|
+| `default_ops.c` | TVM 生成的 fused 算子 + 包装函数 |
+
+---
+
+## 3. 各文件函数列表
+
+### 3.1 `src/main.c`
+
+| 函数 | 说明 |
+|------|------|
+| `main()` | 程序入口，准备数据并调用推理 |
+
+### 3.2 `src/default_lib0.c`
+
+| 函数 | 说明 |
+|------|------|
+| `tvmgen_default_run()` | 运行入口，调用 `__tvm_main__` |
+
+### 3.3 `src/default_lib1.c` (模块化入口)
+
+| 函数 | 说明 |
+|------|------|
+| `init_op_execs()` | 初始化算子执行表 |
+| `tvmgen_default___tvm_main__()` | TVM 主入口，初始化并运行调度引擎 |
+
+### 3.4 `src/runtime/tvmrt_port_posix.c`
+
+| 函数 | 说明 |
+|------|------|
+| `tvmrt_mutex_init/lock/unlock/destroy()` | 互斥锁操作 |
+| `tvmrt_cond_init/wait/signal/broadcast/destroy()` | 条件变量操作 |
+| `tvmrt_thread_create/join()` | 线程操作 |
+| `tvmrt_barrier_init/reset/arrive/sync/destroy()` | 屏障操作 |
+
+### 3.5 `src/runtime/tvmrt_log.c`
+
+| 函数 | 说明 |
+|------|------|
+| `tvmrt_log_set_callback()` | 设置日志回调 |
+| `tvmrt_log_push()` | 压入日志记录 |
+| `tvmrt_log_pop()` | 弹出日志记录 |
+| `tvmrt_log_clear()` | 清空日志 |
+| `tvmrt_log_count()` | 获取日志数量 |
+
+### 3.6 `src/runtime/tvmrt_semantic.c`
+
+| 函数 | 说明 |
+|------|------|
+| `tvmrt_semantic_init()` | 从模型描述初始化运行时上下文 |
+| `tvmrt_semantic_resolve_sid()` | 解析 Storage ID 到指针 |
+
+### 3.7 `src/runtime/tvmrt_engine.c`
+
+| 函数 | 说明 |
+|------|------|
+| `tvmrt_engine_init()` | 初始化调度引擎（创建线程池） |
+| `tvmrt_engine_shutdown()` | 关闭调度引擎 |
+| `tvmrt_engine_run()` | 执行 BSP 调度 |
+| `tvmrt_engine_run_single()` | 单线程执行 |
+| `worker_func()` | Worker 线程函数 |
+
+### 3.8 `src/model/model_desc.c`
+
+| 函数 | 说明 |
+|------|------|
+| `model_get_descriptor()` | 获取模型描述符 |
+| `model_get_tensor_map()` | 获取 Tensor 映射表 |
+| `model_get_op_descs()` | 获取算子描述表 |
+| `model_get_schedule()` | 获取静态调度表 |
+| `model_fill_args()` | 填充算子参数 |
+| `model_get_op_args()` | 获取指定算子的参数指针 |
+
+### 3.9 `src/ops/default_ops.c`
+
+| 函数 | 说明 |
+|------|------|
+| `tvmgen_default_fused_add()` | 加法算子 (input+1.0) |
+| `tvmgen_default_fused_add_1()` | 加法算子 (input+3.0) |
+| `tvmgen_default_fused_add_2()` | 加法算子 (+5.0) |
+| `tvmgen_default_fused_add_3()` | 双输入加法 (sid_2+sid_5) |
+| `tvmgen_default_fused_subtract()` | 减法算子 (-2.0) |
+| `tvmgen_default_fused_subtract_1()` | 减法算子 (-4.0) |
+| `wrapped_fused_*()` | 包装函数，适配统一签名 |
+
+---
+
+## 4. 运行流程
+
+### 4.1 调用顺序
+
+```
+main()
+  │
+  └──▶ tvmgen_default_run()              [default_lib0.c]
+        │
+        └──▶ tvmgen_default___tvm_main__()  [default_lib1.c]
+              │
+              ├── tvmrt_engine_init()         ← 初始化线程池
+              │
+              ├── init_op_execs()             ← 填充算子参数和函数指针
+              │     ├── model_fill_args()
+              │     └── model_get_op_args()
+              │
+              └── tvmrt_engine_run()          ← BSP 调度执行
+                    │
+                    ├── Layer 1: Node 0, Node 2 (并行)
+                    │     barrier_sync()
+                    ├── Layer 2: Node 1, Node 3 (并行)
+                    │     barrier_sync()
+                    ├── Layer 3: Node 4 (串行)
+                    └── Layer 4: Node 5 (串行)
+```
+
+### 4.2 BSP 执行模型
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Layer 1 (并行)                       │
+│   ┌─────────────┐    ┌─────────────┐                   │
+│   │   Node 0    │    │   Node 2    │                   │
+│   │ fused_add_0 │    │ fused_add_1 │                   │
+│   └─────────────┘    └─────────────┘                   │
+├─────────────────────────────────────────────────────────┤
+│                    ═══ BARRIER ═══                      │
+├─────────────────────────────────────────────────────────┤
+│                    Layer 2 (并行)                       │
+│   ┌───────────────┐  ┌─────────────────┐               │
+│   │    Node 1     │  │     Node 3      │               │
+│   │fused_subtract │  │fused_subtract_1 │               │
+│   └───────────────┘  └─────────────────┘               │
+├─────────────────────────────────────────────────────────┤
+│                    ═══ BARRIER ═══                      │
+├─────────────────────────────────────────────────────────┤
+│                    Layer 3 (串行)                       │
+│   ┌─────────────┐                                      │
+│   │   Node 4    │                                      │
+│   │ fused_add_2 │                                      │
+│   └─────────────┘                                      │
+├─────────────────────────────────────────────────────────┤
+│                    ═══ BARRIER ═══                      │
+├─────────────────────────────────────────────────────────┤
+│                    Layer 4 (串行)                       │
+│   ┌─────────────┐                                      │
+│   │   Node 5    │                                      │
+│   │ fused_add_3 │                                      │
+│   └─────────────┘                                      │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 4.3 数据流
+
+```
+input (10.0)
+    │
+    ├──▶ Node 0: + 1.0 ──▶ sid_1 (11.0)
+    │                          │
+    │                          └──▶ Node 1: - 2.0 ──▶ sid_2 (9.0)
+    │
+    └──▶ Node 2: + 3.0 ──▶ sid_3 (13.0)
+                               │
+                               └──▶ Node 3: - 4.0 ──▶ sid_4 (9.0)
+                                                         │
+                                                         └──▶ Node 4: + 5.0 ──▶ sid_5 (14.0)
+
+    sid_2 (9.0) + sid_5 (14.0) ──▶ Node 5 ──▶ output (23.0)
+```
+
+---
+
+## 5. 编译与运行
+
+```bash
+# 编译模块化版本
+make all
+
+# 运行
+make run
+
+# 输出
+验证开始...
+输入值: 10.000000
+执行成功！
+输出值: 23.000000 (预期: 23.000000)
+```
