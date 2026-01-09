@@ -1,51 +1,94 @@
 # ==========================================
-# TVM Runtime Simple Makefile
+# TVM Runtime Modular Makefile (Step 7)
 # Platform: Mac
 # ==========================================
 
-# 编译器设置 (Mac 下 gcc 通常也是 clang 的别名，直接用 clang 更明确)
+# 编译器设置
 CC = clang
 
 # 编译选项
-# -Iinclude       : 在 include 目录寻找头文件 (tvmgen_default.h)
-# -Wno-everything : 忽略所有警告 (因为这是AOT生成的代码，且我们手动修改过，警告会很多)
-# -g              : 生成调试信息 (方便你以后用 lldb 调试)
-# -O2             : 开启二级优化
-CFLAGS = -Iinclude -Wno-everything -g -O2
+CFLAGS = -Isrc -Iinclude -Wno-everything -g -O2
 
 # 目标文件名
 TARGET = runner
 
-# 源文件列表
-SRCS = src/main.c src/default_lib0.c src/default_lib1.c
+# ==========================================
+# 源文件列表 (模块化架构)
+# ==========================================
 
-# 根据源文件列表自动生成 .o 文件列表
+# 入口文件
+ENTRY_SRCS = src/main.c src/default_lib0.c src/default_lib1.c
+
+# Runtime 模块
+RUNTIME_SRCS = src/runtime/tvmrt_port_posix.c \
+               src/runtime/tvmrt_log.c \
+               src/runtime/tvmrt_semantic.c \
+               src/runtime/tvmrt_engine.c
+
+# 模型描述 (编译器生成)
+MODEL_SRCS = src/model/model_desc.c
+
+# 算子实现
+OPS_SRCS = src/ops/default_ops.c
+
+# 所有源文件
+SRCS = $(ENTRY_SRCS) $(RUNTIME_SRCS) $(MODEL_SRCS) $(OPS_SRCS)
 OBJS = $(SRCS:.c=.o)
 
 # ==========================================
 # 规则定义
 # ==========================================
 
-# 默认目标：只编译链接
+# 默认目标：模块化版本
 all: $(TARGET)
+	@echo "Built MODULAR version (Step 7)"
 
-# 链接步骤：把所有的 .o 文件合并成可执行文件
+# 链接步骤
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) -lpthread
-	@echo "Build successful! Executable created: ./$(TARGET)"
+	@echo "Build successful! Executable: ./$(TARGET)"
 
-# 编译步骤：把每个 .c 文件编译成 .o 文件
-# $< 代表源文件， $@ 代表目标文件
+# 编译步骤
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# 清理规则：删除生成的中间文件和可执行文件
+# 清理规则
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(OBJS) $(TARGET) $(TARGET)_legacy
 	@echo "Cleaned up."
 
-# 快捷运行规则：编译并直接运行
+# 快捷运行
 run: $(TARGET)
 	@echo "Running $(TARGET)..."
 	@echo "--------------------------------"
 	@./$(TARGET)
+
+# ==========================================
+# Legacy 版本构建 (Step 6 BSP)
+# ==========================================
+LEGACY_SRCS = src/main.c src/default_lib0.c src/default_lib1_legacy.c
+LEGACY_OBJS = $(LEGACY_SRCS:.c=.o)
+
+legacy: $(LEGACY_OBJS)
+	$(CC) $(CFLAGS) -o $(TARGET)_legacy $(LEGACY_OBJS) -lpthread
+	@echo "Built LEGACY version (Step 6 BSP)"
+	@echo "Executable: ./$(TARGET)_legacy"
+
+run_legacy: legacy
+	@echo "Running $(TARGET)_legacy..."
+	@echo "--------------------------------"
+	@./$(TARGET)_legacy
+
+# ==========================================
+# 帮助信息
+# ==========================================
+help:
+	@echo "TVM Runtime Build Targets:"
+	@echo "  make all     - Build modular version (Step 7, default)"
+	@echo "  make run     - Build and run modular version"
+	@echo "  make legacy  - Build legacy version (Step 6 BSP)"
+	@echo "  make run_legacy - Run legacy version"
+	@echo "  make clean   - Remove all build artifacts"
+	@echo "  make help    - Show this message"
+
+.PHONY: all clean run legacy run_legacy help
