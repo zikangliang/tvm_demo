@@ -1,12 +1,12 @@
 /**
  * @file tvmrt_log.h
- * @brief Lightweight Logging Interface
+ * @brief 轻量级日志接口
  * 
- * Features:
- * - Zero dynamic allocation (static ring buffer)
- * - Compile-time enable/disable via TVMRT_LOG_ENABLE
- * - Callback mode for custom logging backends
- * - Ring buffer mode for post-mortem analysis
+ * 特性：
+ * - 零动态分配 (静态 ring buffer)
+ * - 可通过 TVMRT_LOG_ENABLE 编译期开关
+ * - 回调模式支持自定义日志后端
+ * - Ring buffer 模式支持事后分析
  */
 
 #ifndef TVMRT_LOG_H_
@@ -19,21 +19,21 @@ extern "C" {
 #endif
 
 // ============================================================
-// Configuration
+// 配置
 // ============================================================
 
-/** Enable logging (set to 0 to completely disable) */
+/** 启用日志 (设为 0 可完全禁用) */
 #ifndef TVMRT_LOG_ENABLE
 #define TVMRT_LOG_ENABLE 1
 #endif
 
-/** Ring buffer size (number of records) */
+/** Ring buffer 大小 (记录条数) */
 #ifndef TVMRT_LOG_BUFFER_SIZE
 #define TVMRT_LOG_BUFFER_SIZE 64
 #endif
 
 // ============================================================
-// Log Levels
+// 日志级别
 // ============================================================
 
 typedef enum {
@@ -44,63 +44,63 @@ typedef enum {
 } tvmrt_log_level_t;
 
 // ============================================================
-// Log Record Structure
+// 日志记录结构
 // ============================================================
 
 typedef struct {
-    int32_t op_id;              // Operator ID
-    const char* op_name;        // Operator name (static string, not copied)
-    int32_t worker_id;          // Worker thread ID (-1 for main thread)
-    int32_t ret_code;           // Return code from operator
-    tvmrt_log_level_t level;    // Log level
+    int32_t op_id;              // 算子 ID
+    const char* op_name;        // 算子名称 (静态字符串，不复制)
+    int32_t worker_id;          // Worker 线程 ID (-1 表示主线程)
+    int32_t ret_code;           // 算子返回码
+    tvmrt_log_level_t level;    // 日志级别
 } tvmrt_log_record_t;
 
 // ============================================================
-// Callback Mode API
+// 回调模式 API
 // ============================================================
 
-/** Log callback function type */
+/** 日志回调函数类型 */
 typedef void (*tvmrt_log_callback_t)(const tvmrt_log_record_t* rec, void* user);
 
 /**
- * @brief Set custom log callback
- * @param cb Callback function (NULL to disable)
- * @param user User data passed to callback
+ * @brief 设置自定义日志回调
+ * @param cb 回调函数 (NULL 表示禁用)
+ * @param user 传递给回调的用户数据
  */
 void tvmrt_log_set_callback(tvmrt_log_callback_t cb, void* user);
 
 // ============================================================
-// Ring Buffer Mode API
+// Ring Buffer 模式 API
 // ============================================================
 
 /**
- * @brief Push a log record to the ring buffer
- * @param rec Pointer to log record
+ * @brief 将日志记录压入 ring buffer
+ * @param rec 日志记录指针
  * 
- * If the buffer is full, the oldest record is overwritten.
+ * 如果缓冲区已满，最旧的记录将被覆盖。
  */
 void tvmrt_log_push(const tvmrt_log_record_t* rec);
 
 /**
- * @brief Pop a log record from the ring buffer
- * @param rec Pointer to receive the log record
- * @return 0 on success, -1 if buffer is empty
+ * @brief 从 ring buffer 弹出日志记录
+ * @param rec 接收日志记录的指针
+ * @return 成功返回 0，缓冲区为空返回 -1
  */
 int tvmrt_log_pop(tvmrt_log_record_t* rec);
 
 /**
- * @brief Clear all records from the ring buffer
+ * @brief 清空 ring buffer 中的所有记录
  */
 void tvmrt_log_clear(void);
 
 /**
- * @brief Get number of records in the buffer
- * @return Current record count
+ * @brief 获取缓冲区中的记录数量
+ * @return 当前记录数
  */
 int32_t tvmrt_log_count(void);
 
 // ============================================================
-// Convenience Macros
+// 便捷宏
 // ============================================================
 
 #if TVMRT_LOG_ENABLE

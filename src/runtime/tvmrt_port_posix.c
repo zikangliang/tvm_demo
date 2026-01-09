@@ -1,18 +1,18 @@
 /**
  * @file tvmrt_port_posix.c
- * @brief OS Abstraction Layer - POSIX (pthread) Implementation
+ * @brief OS 抽象层 - POSIX (pthread) 实现
  * 
- * This file implements the tvmrt_port.h interface using POSIX pthreads.
- * Use this on Linux, macOS, and other POSIX-compliant systems.
+ * 本文件使用 POSIX pthreads 实现 tvmrt_port.h 接口。
+ * 适用于 Linux、macOS 等 POSIX 兼容系统。
  */
 
 #include "tvmrt_port.h"
 #include <string.h>
 
-// Type definitions are now in tvmrt_port.h via conditional compilation
+// 类型定义现在通过条件编译在 tvmrt_port.h 中提供
 
 // ============================================================
-// Mutex Implementation
+// 互斥锁实现
 // ============================================================
 
 int tvmrt_mutex_init(tvmrt_mutex_t* m) {
@@ -37,7 +37,7 @@ void tvmrt_mutex_destroy(tvmrt_mutex_t* m) {
 }
 
 // ============================================================
-// Condition Variable Implementation
+// 条件变量实现
 // ============================================================
 
 int tvmrt_cond_init(tvmrt_cond_t* c) {
@@ -67,7 +67,7 @@ void tvmrt_cond_destroy(tvmrt_cond_t* c) {
 }
 
 // ============================================================
-// Thread Implementation
+// 线程实现
 // ============================================================
 
 int tvmrt_thread_create(tvmrt_thread_t* t, tvmrt_thread_func_t func, void* arg) {
@@ -81,7 +81,7 @@ int tvmrt_thread_join(tvmrt_thread_t* t) {
 }
 
 // ============================================================
-// Barrier Implementation (for BSP synchronization)
+// 屏障实现 (用于 BSP 同步)
 // ============================================================
 
 int tvmrt_barrier_init(tvmrt_barrier_t* b) {

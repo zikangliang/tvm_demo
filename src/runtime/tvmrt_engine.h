@@ -1,12 +1,12 @@
 /**
  * @file tvmrt_engine.h
- * @brief Scheduling Engine Interface
+ * @brief 调度引擎接口
  * 
- * Implements BSP (Bulk Synchronous Parallel) execution model:
- * - Layer-by-layer execution with barriers between layers
- * - Parallel execution within each layer
+ * 实现 BSP (Bulk Synchronous Parallel) 执行模型：
+ * - 逐层执行，层间有屏障同步
+ * - 层内并行执行
  * 
- * Aligns with PDF Section 3.2: "核心引擎层"
+ * 对应 PDF 3.2 节: "核心引擎层"
  */
 
 #ifndef TVMRT_ENGINE_H_
@@ -19,41 +19,41 @@ extern "C" {
 #endif
 
 // ============================================================
-// Engine Configuration
+// 引擎配置
 // ============================================================
 
-/** Number of worker threads (0 = single-threaded mode) */
+/** Worker 线程数 (0 = 单线程模式) */
 #ifndef TVMRT_NUM_WORKERS
 #define TVMRT_NUM_WORKERS 4
 #endif
 
 // ============================================================
-// Engine API
+// 引擎 API
 // ============================================================
 
 /**
- * @brief Initialize the execution engine
+ * @brief 初始化执行引擎
  * 
- * Creates thread pool and synchronization primitives.
- * Should be called once at startup.
+ * 创建线程池和同步原语。
+ * 应在启动时调用一次。
  * 
- * @return 0 on success
+ * @return 成功返回 0
  */
 int tvmrt_engine_init(void);
 
 /**
- * @brief Shutdown the execution engine
+ * @brief 关闭执行引擎
  * 
- * Destroys thread pool and releases resources.
+ * 销毁线程池并释放资源。
  */
 void tvmrt_engine_shutdown(void);
 
 /**
- * @brief Execute model according to static schedule
+ * @brief 按静态调度表执行模型
  * 
- * @param ctx Runtime context with filled operators
- * @param schedule Static schedule descriptor
- * @return 0 on success, negative on error
+ * @param ctx 已填充算子的运行时上下文
+ * @param schedule 静态调度描述符
+ * @return 成功返回 0，错误返回负数
  */
 int tvmrt_engine_run(
     tvmrt_context_t* ctx,
@@ -61,13 +61,13 @@ int tvmrt_engine_run(
 );
 
 /**
- * @brief Execute model in single-threaded mode (no thread pool)
+ * @brief 单线程模式执行模型 (不使用线程池)
  * 
- * Useful for debugging or environments without thread support.
+ * 适用于调试或不支持线程的环境。
  * 
- * @param ctx Runtime context with filled operators
- * @param schedule Static schedule descriptor
- * @return 0 on success, negative on error
+ * @param ctx 已填充算子的运行时上下文
+ * @param schedule 静态调度描述符
+ * @return 成功返回 0，错误返回负数
  */
 int tvmrt_engine_run_single(
     tvmrt_context_t* ctx,

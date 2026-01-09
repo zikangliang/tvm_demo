@@ -1,41 +1,26 @@
 /**
  * @file tvmrt_port_single.c
- * @brief OS Abstraction Layer - Single-threaded (No-OS) Implementation
+ * @brief OS 抽象层 - 单线程 (无 OS) 实现
  * 
- * This file provides a no-op implementation of tvmrt_port.h for:
- * - Debugging on single-threaded hosts
- * - Bare-metal or minimal RTOS environments without thread support
- * - Validating logic without concurrency
+ * 本文件提供 tvmrt_port.h 的空操作实现，用于：
+ * - 在单线程主机上调试
+ * - 裸机或无线程支持的最小 RTOS 环境
+ * - 在无并发情况下验证逻辑
  * 
- * All threading primitives are stubs that do nothing.
- * Threads are NOT actually created - the thread function is executed inline.
+ * 所有线程原语都是空操作存根。
+ * 线程不会实际创建 - 线程函数将内联执行。
  */
 
 #include "tvmrt_port.h"
 
 // ============================================================
-// Internal Structure Definitions (empty stubs)
+// 内部结构定义 (空存根)
 // ============================================================
 
-struct tvmrt_mutex {
-    int dummy;  // Prevent zero-size struct
-};
-
-struct tvmrt_cond {
-    int dummy;
-};
-
-struct tvmrt_thread {
-    int dummy;
-};
-
-struct tvmrt_barrier {
-    int32_t count;
-    int32_t target;
-};
+// 类型定义现在在 tvmrt_port.h 中条件编译提供
 
 // ============================================================
-// Mutex Implementation (No-op)
+// 互斥锁实现 (空操作)
 // ============================================================
 
 int tvmrt_mutex_init(tvmrt_mutex_t* m) {
@@ -58,7 +43,7 @@ void tvmrt_mutex_destroy(tvmrt_mutex_t* m) {
 }
 
 // ============================================================
-// Condition Variable Implementation (No-op)
+// 条件变量实现 (空操作)
 // ============================================================
 
 int tvmrt_cond_init(tvmrt_cond_t* c) {
@@ -67,8 +52,8 @@ int tvmrt_cond_init(tvmrt_cond_t* c) {
 }
 
 int tvmrt_cond_wait(tvmrt_cond_t* c, tvmrt_mutex_t* m) {
-    // In single-threaded mode, wait is a no-op
-    // (there's no other thread to signal us)
+    // 单线程模式下，wait 是空操作
+    // (没有其他线程来唤醒我们)
     (void)c;
     (void)m;
     return TVMRT_OK;
@@ -89,13 +74,13 @@ void tvmrt_cond_destroy(tvmrt_cond_t* c) {
 }
 
 // ============================================================
-// Thread Implementation (Inline execution)
+// 线程实现 (内联执行)
 // ============================================================
 
 int tvmrt_thread_create(tvmrt_thread_t* t, tvmrt_thread_func_t func, void* arg) {
-    // In single-threaded mode, we DON'T actually create threads
-    // The caller (thread pool) should detect single-thread mode and
-    // execute tasks directly in the main thread instead.
+    // 单线程模式下，我们不实际创建线程
+    // 调用者 (线程池) 应检测单线程模式，
+    // 直接在主线程中执行任务
     (void)t;
     (void)func;
     (void)arg;
@@ -103,13 +88,13 @@ int tvmrt_thread_create(tvmrt_thread_t* t, tvmrt_thread_func_t func, void* arg) 
 }
 
 int tvmrt_thread_join(tvmrt_thread_t* t) {
-    // No threads to join in single-threaded mode
+    // 单线程模式下没有线程需要 join
     (void)t;
     return TVMRT_OK;
 }
 
 // ============================================================
-// Barrier Implementation (Simple counter)
+// 屏障实现 (简单计数)
 // ============================================================
 
 int tvmrt_barrier_init(tvmrt_barrier_t* b) {
@@ -131,10 +116,9 @@ void tvmrt_barrier_arrive(tvmrt_barrier_t* b) {
 }
 
 void tvmrt_barrier_sync(tvmrt_barrier_t* b) {
-    // In single-threaded mode, if count < target, the tasks
-    // haven't been executed yet. This is a logic error that
-    // should be caught during development.
-    // In production, we simply proceed.
+    // 单线程模式下，如果 count < target，说明任务
+    // 还未执行。这是开发阶段应捕获的逻辑错误。
+    // 生产环境中，我们简单地继续执行。
     (void)b;
 }
 
