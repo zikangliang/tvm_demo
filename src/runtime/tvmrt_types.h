@@ -11,6 +11,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// 前向声明和包含依赖类型
+#include "tvmrt_port.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -145,6 +148,25 @@ typedef struct {
     
     void* args_storage;                 /**< 参数结构存储 */
 } tvmrt_context_t;
+
+// ============================================================
+// 层级任务队列 (用于 BSP 调度)
+// ============================================================
+
+/**
+ * @brief 层级任务队列
+ * 
+ * 用于 BSP 分层调度中存储当前层的待执行任务。
+ * Worker 从队列中取任务并通过链式唤醒下一个 Worker。
+ */
+typedef struct {
+    int32_t tasks[TVMRT_MAX_OPS_PER_LAYER];  /**< 当前层的算子 ID 数组 */
+    int32_t head;                            /**< 队列头索引 */
+    int32_t tail;                            /**< 队列尾索引 */
+    int32_t count;                           /**< 剩余任务数 */
+    tvmrt_mutex_t mutex;                     /**< 保护队列访问的互斥锁 */
+    tvmrt_cond_t cond;                       /**< Worker 等待条件变量 */
+} tvmrt_layer_queue_t;
 
 #ifdef __cplusplus
 }

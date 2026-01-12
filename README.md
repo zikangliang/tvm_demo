@@ -46,13 +46,13 @@ tvm_demo/
 
 | 文件 | 内容 |
 |------|------|
-| `tvmrt_types.h` | 公共类型定义（后端类型、Tensor 映射、算子描述、调度层、运行时上下文） |
+| `tvmrt_types.h` | 公共类型定义（后端类型、Tensor 映射、算子描述、调度层、运行时上下文、**层级任务队列**） |
 | `tvmrt_port.h` | OS 抽象层接口（mutex、cond、thread、barrier） |
 | `tvmrt_port_posix.c` | POSIX pthread 实现 |
 | `tvmrt_port_single.c` | 单线程空实现 |
 | `tvmrt_log.h/c` | 日志机制（Ring Buffer + 回调模式） |
 | `tvmrt_semantic.h/c` | 语义转换层（解析模型描述符，组装可执行算子） |
-| `tvmrt_engine.h/c` | BSP 调度引擎（层间屏障同步，层内并行执行） |
+| `tvmrt_engine.h/c` | BSP 调度引擎（**任务队列 + 链式唤醒**，层间屏障同步，层内并行执行） |
 
 ### 2.3 Model 模块
 
@@ -120,11 +120,12 @@ tvm_demo/
 
 | 函数 | 说明 |
 |------|------|
-| `tvmrt_engine_init()` | 初始化调度引擎（创建线程池） |
+| `tvmrt_engine_init()` | 初始化调度引擎（创建线程池，初始化任务队列） |
 | `tvmrt_engine_shutdown()` | 关闭调度引擎 |
-| `tvmrt_engine_run()` | 执行 BSP 调度 |
+| `tvmrt_engine_run()` | 执行 BSP 调度（逐层填充任务队列） |
 | `tvmrt_engine_run_single()` | 单线程执行 |
-| `worker_func()` | Worker 线程函数 |
+| `load_next_layer()` | **辅助函数**：加载下一层任务到队列并唤醒 Worker |
+| `worker_func()` | Worker 线程函数（**链式唤醒机制**） |
 
 ### 3.8 `src/model/model_desc.c`
 
@@ -178,11 +179,37 @@ main()
                     └── Layer 4: Node 5 (串行)
 ```
 
-### 4.2 BSP 执行模型
+### 4.2 BSP 任务队列执行模型
+
+**核心机制**: 显式任务队列 + Worker 链式唤醒
+
+```
+主线程                          Worker1                Worker2
+  │
+  ├─ load_next_layer(Layer1)   
+  │  ├─ 填充队列: [Node0, Node2]
+  │  └─ signal() ────────────▶ 唤醒 Worker1
+  │                              │
+  │                              ├─ lock & pop(Node0)
+  │                              ├─ signal() ──────▶ 唤醒 Worker2
+  │                              ├─ unlock()          │
+  │                              ├─ execute(Node0)    ├─ lock & pop(Node2)
+  │                              │                    ├─ unlock()
+  │                              │                    ├─ execute(Node2)
+  │                              ├─ barrier_arrive()  │
+  │                              │                    ├─ barrier_arrive()
+  ├─ barrier_sync() ◀────────────┴────────────────────┘
+  │ (Layer1 完成)
+  │
+  ├─ load_next_layer(Layer2)
+  │  └─ 重复上述流程...
+```
+
+**层级划分**:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Layer 1 (并行)                       │
+│                    Layer 1 (队列: [0, 2])               │
 │   ┌─────────────┐    ┌─────────────┐                   │
 │   │   Node 0    │    │   Node 2    │                   │
 │   │ fused_add_0 │    │ fused_add_1 │                   │
@@ -190,7 +217,7 @@ main()
 ├─────────────────────────────────────────────────────────┤
 │                    ═══ BARRIER ═══                      │
 ├─────────────────────────────────────────────────────────┤
-│                    Layer 2 (并行)                       │
+│                    Layer 2 (队列: [1, 3])               │
 │   ┌───────────────┐  ┌─────────────────┐               │
 │   │    Node 1     │  │     Node 3      │               │
 │   │fused_subtract │  │fused_subtract_1 │               │
@@ -198,7 +225,7 @@ main()
 ├─────────────────────────────────────────────────────────┤
 │                    ═══ BARRIER ═══                      │
 ├─────────────────────────────────────────────────────────┤
-│                    Layer 3 (串行)                       │
+│                    Layer 3 (单任务)                     │
 │   ┌─────────────┐                                      │
 │   │   Node 4    │                                      │
 │   │ fused_add_2 │                                      │
@@ -206,7 +233,7 @@ main()
 ├─────────────────────────────────────────────────────────┤
 │                    ═══ BARRIER ═══                      │
 ├─────────────────────────────────────────────────────────┤
-│                    Layer 4 (串行)                       │
+│                    Layer 4 (单任务)                     │
 │   ┌─────────────┐                                      │
 │   │   Node 5    │                                      │
 │   │ fused_add_3 │                                      │
@@ -234,7 +261,92 @@ input (10.0)
 
 ---
 
-## 5. 编译与运行
+## 5. 参数定义与初始化位置
+
+### 5.1 核心数据结构定义
+
+| 结构体/类型 | 定义位置 | 说明 |
+|------------|---------|------|
+| `tvmrt_layer_queue_t` | `src/runtime/tvmrt_types.h:150-166` | 层级任务队列（存储当前层待执行算子） |
+| `tvmrt_context_t` | `src/runtime/tvmrt_types.h:139-147` | 运行时上下文（workspace、算子执行表） |
+| `tvmrt_op_exec_t` | `src/runtime/tvmrt_types.h:123-127` | 可执行算子条目（函数指针 + 参数） |
+| `tvmrt_schedule_desc_t` | `src/runtime/tvmrt_types.h:108-111` | 静态调度表（层数组） |
+| `tvmrt_schedule_layer_t` | `src/runtime/tvmrt_types.h:100-103` | 单个调度层（算子 ID 数组） |
+| `tvmrt_op_desc_t` | `src/runtime/tvmrt_types.h:82-91` | 算子描述（名称、后端、输入输出 SID） |
+| `tvmrt_tensor_map_entry_t` | `src/runtime/tvmrt_types.h:66-71` | Tensor 内存映射项 |
+
+### 5.2 全局静态参数
+
+#### 模型描述参数（`src/model/model_desc.c`）
+
+| 参数 | 定义位置 | 类型 | 说明 |
+|------|---------|------|------|
+| `g_tensor_map` | L31-38 | `tvmrt_tensor_map_entry_t[]` | 张量内存映射表（5个 SID） |
+| `g_op_descs` | L45-112 | `tvmrt_op_desc_t[]` | 算子描述表（6个节点） |
+| `g_cpu_func_table` | L118-125 | `tvmrt_op_func_t[]` | CPU 函数指针表 |
+| `g_schedule_layers` | L145-150 | `tvmrt_schedule_layer_t[]` | 静态调度表（4层） |
+| `g_layer1_ops` | L134 | `int32_t[]` | Layer 1 算子索引: `{0, 2}` |
+| `g_layer2_ops` | L137 | `int32_t[]` | Layer 2 算子索引: `{1, 3}` |
+| `g_layer3_ops` | L140 | `int32_t[]` | Layer 3 算子索引: `{4}` |
+| `g_layer4_ops` | L143 | `int32_t[]` | Layer 4 算子索引: `{5}` |
+
+#### 算子参数存储（`src/model/model_desc.c`）
+
+| 参数 | 定义位置 | 类型 | 初始化位置 |
+|------|---------|------|-----------|
+| `g_fused_add_args[5]` | L196 (声明) | `FusedAddArgs[]` | `model_fill_args()` L217-254 |
+| `g_fused_add3_args` | L197 (声明) | `FusedAdd3Args` | `model_fill_args()` L257-263 |
+
+> **注**: 这些参数在 `tvmgen_default___tvm_main__()` 调用 `init_op_execs()` 时被填充。
+
+#### 引擎状态（`src/runtime/tvmrt_engine.c`）
+
+| 参数 | 定义位置 | 类型 | 说明 |
+|------|---------|------|------|
+| `g_engine` | L36 (声明) | `engine_state_t` | 全局引擎状态（线程池、任务队列、Barrier） |
+| `g_engine.task_queue` | 成员变量 | `tvmrt_layer_queue_t` | 当前层任务队列 |
+| `g_engine.workers[4]` | 成员变量 | `tvmrt_thread_t[]` | Worker 线程数组 |
+| `g_engine.layer_barrier` | 成员变量 | `tvmrt_barrier_t` | 层间同步屏障 |
+
+### 5.3 函数参数传递流程
+
+```
+main()
+  ├─ 分配: input_buffer, output_buffer
+  └─ 调用: tvmgen_default_run(input, output)
+
+tvmgen_default_run() [default_lib0.c]
+  ├─ 分配: global_workspace, global_const_workspace
+  └─ 调用: tvmgen_default___tvm_main__(input, output, const_ws, ws)
+
+tvmgen_default___tvm_main__() [default_lib1.c]
+  ├─ 调用: init_op_execs(input, output, ws, const_ws)
+  │   ├─ 调用: model_fill_args(NULL, input, output, ws, const_ws)
+  │   │   └─ 填充: g_fused_add_args[], g_fused_add3_args
+  │   └─ 调用: model_get_op_args(op_id)
+  │       └─ 返回: &g_fused_add_args[op_id] 或 &g_fused_add3_args
+  │
+  ├─ 构造: tvmrt_context_t ctx = {.workspace=ws, .op_execs=g_op_execs, ...}
+  └─ 调用: tvmrt_engine_run(&ctx, schedule)
+
+tvmrt_engine_run() [tvmrt_engine.c]
+  ├─ 设置: g_engine.current_ctx = ctx
+  ├─ 逐层执行:
+  │   ├─ 调用: load_next_layer()
+  │   │   └─ 填充 g_engine.task_queue.tasks[] 并唤醒 Worker
+  │   └─ 调用: tvmrt_barrier_sync() (等待当前层完成)
+  └─ 返回
+
+worker_func() [Worker 线程]
+  ├─ 从 g_engine.task_queue 获取 op_id
+  ├─ 获取: exec = &ctx->op_execs[op_id]
+  ├─ 调用: exec->func(exec->args)  // 执行算子
+  └─ 调用: tvmrt_barrier_arrive()  // 通知完成
+```
+
+---
+
+## 6. 编译与运行
 
 ```bash
 # 编译模块化版本

@@ -273,7 +273,8 @@ void* model_get_op_args(int32_t op_id) {
     if (op_id < 0 || op_id >= MODEL_NUM_OPS) {
         return NULL;
     }
-    
+    // 0 - 4 号算子为 fused_add 有 4 个参数
+    // 5 号算子为 fused_add3 有 5 个参数
     if (op_id < 5) {
         return &g_fused_add_args[op_id];
     } else {
