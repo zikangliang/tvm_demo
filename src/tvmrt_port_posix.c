@@ -6,7 +6,7 @@
  * 适用于 Linux、macOS 等 POSIX 兼容系统。
  */
 
-#include "tvmrt_port.h"
+#include "tvmrt.h"
 #include <string.h>
 
 // 类型定义现在通过条件编译在 tvmrt_port.h 中提供

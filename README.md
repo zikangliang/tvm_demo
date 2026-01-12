@@ -1,106 +1,66 @@
-# TVM Runtime 模块化架构文档
+# TVM Runtime 简化架构文档
 
-## 1. 项目目录结构
+## 1. 项目概述
+
+本项目是 TVM Runtime 的简化嵌入式实现，采用 **6 文件架构**，专为嵌入式环境和快速集成优化。
+
+**核心特性**:
+- ✅ 显式任务队列 + Worker 链式唤醒
+- ✅ BSP 静态分层调度
+- ✅ 零动态内存分配
+- ✅ 单头文件 API
+- ✅ 平台可移植（POSIX / RTOS）
+
+---
+
+## 2. 项目目录结构
 
 ```
 tvm_demo/
 ├── include/
 │   └── tvmgen_default.h       # TVM 生成的公共头文件
 ├── src/
-│   ├── main.c                 # 程序入口
-│   ├── default_lib0.c         # Workspace 分配 + 运行入口
-│   ├── default_lib1.c         # 模块化入口 (调用 Runtime 模块)
-│   ├── default_lib1_legacy.c  # [备份] 原始 BSP 实现
-│   ├── runtime/               # Runtime 核心模块
-│   │   ├── tvmrt_types.h      # 公共类型定义
-│   │   ├── tvmrt_port.h       # OS 抽象层接口
-│   │   ├── tvmrt_port_posix.c # POSIX 实现
-│   │   ├── tvmrt_port_single.c# 单线程 fallback
-│   │   ├── tvmrt_log.h        # 日志接口
-│   │   ├── tvmrt_log.c        # 日志实现
-│   │   ├── tvmrt_semantic.h   # 语义转换层接口
-│   │   ├── tvmrt_semantic.c   # 语义转换层实现
-│   │   ├── tvmrt_engine.h     # 调度引擎接口
-│   │   └── tvmrt_engine.c     # BSP 调度引擎实现
-│   ├── model/                 # 模型描述模块
-│   │   ├── model_desc.h       # 模型描述接口
-│   │   └── model_desc.c       # 静态描述表 (编译器生成)
-│   └── ops/                   # 算子模块
-│       └── default_ops.c      # TVM 生成的 fused 算子
+│   ├── tvmrt.h                # Runtime 统一头文件 (API + 类型)
+│   ├── tvmrt.c                # Runtime 统一实现 (引擎 + 语义 + 日志)
+│   ├── tvmrt_port_posix.c     # OS 适配层 (POSIX 实现)
+│   ├── model_data.c           # 模型静态描述 (TVM 生成)
+│   ├── ops.c                  # 算子实现 (TVM 生成)
+│   └── main.c                 # 用户入口 + workspace 分配
 └── Makefile
 ```
 
 ---
 
-## 2. 各文件内容概述
+## 3. 各文件内容概述
 
-### 2.1 入口文件
+### 3.1 Runtime 核心
 
-| 文件 | 内容 |
-|------|------|
-| `main.c` | 测试程序入口，准备输入输出调用 `tvmgen_default_run()` |
-| `default_lib0.c` | 静态分配 workspace + 常量区，提供 `tvmgen_default_run()` |
-| `default_lib1.c` | 模块化入口，调用 Runtime 模块执行模型 |
+| 文件 | 内容 | 行数 |
+|------|------|------|
+| `tvmrt.h` | Runtime 完整 API：类型定义、OS 抽象接口、日志、引擎、语义转换 | ~500 |
+| `tvmrt.c` | Runtime 完整实现：日志系统、语义转换、BSP 调度引擎（任务队列 + 链式唤醒） | ~430 |
+| `tvmrt_port_posix.c` | POSIX 平台适配：mutex、条件变量、线程、barrier | ~200 |
 
-### 2.2 Runtime 模块
+### 3.2 模型相关（TVM 生成）
 
-| 文件 | 内容 |
-|------|------|
-| `tvmrt_types.h` | 公共类型定义（后端类型、Tensor 映射、算子描述、调度层、运行时上下文、**层级任务队列**） |
-| `tvmrt_port.h` | OS 抽象层接口（mutex、cond、thread、barrier） |
-| `tvmrt_port_posix.c` | POSIX pthread 实现 |
-| `tvmrt_port_single.c` | 单线程空实现 |
-| `tvmrt_log.h/c` | 日志机制（Ring Buffer + 回调模式） |
-| `tvmrt_semantic.h/c` | 语义转换层（解析模型描述符，组装可执行算子） |
-| `tvmrt_engine.h/c` | BSP 调度引擎（**任务队列 + 链式唤醒**，层间屏障同步，层内并行执行） |
+| 文件 | 内容 | 行数 |
+|------|------|------|
+| `model_data.c` | 静态描述表：张量映射、算子描述、调度表、函数表、参数填充 | ~280 |
+| `ops.c` | TVM 生成的融合算子 + 包装函数 | ~130 |
 
-### 2.3 Model 模块
+### 3.3 用户入口
 
-| 文件 | 内容 |
-|------|------|
-| `model_desc.h` | 模型描述接口 + 参数结构体定义 |
-| `model_desc.c` | 静态描述表（Tensor 映射、算子描述、调度表、函数表） |
-
-### 2.4 Ops 模块
-
-| 文件 | 内容 |
-|------|------|
-| `default_ops.c` | TVM 生成的 fused 算子 + 包装函数 |
+| 文件 | 内容 | 行数 |
+|------|------|------|
+| `main.c` | Workspace 分配、Runtime 初始化、测试入口 | ~165 |
 
 ---
 
-## 3. 各文件函数列表
+## 4. 函数列表
 
-### 3.1 `src/main.c`
+### 4.1 `src/tvmrt.c` (Runtime 核心)
 
-| 函数 | 说明 |
-|------|------|
-| `main()` | 程序入口，准备数据并调用推理 |
-
-### 3.2 `src/default_lib0.c`
-
-| 函数 | 说明 |
-|------|------|
-| `tvmgen_default_run()` | 运行入口，调用 `__tvm_main__` |
-
-### 3.3 `src/default_lib1.c` (模块化入口)
-
-| 函数 | 说明 |
-|------|------|
-| `init_op_execs()` | 初始化算子执行表 |
-| `tvmgen_default___tvm_main__()` | TVM 主入口，初始化并运行调度引擎 |
-
-### 3.4 `src/runtime/tvmrt_port_posix.c`
-
-| 函数 | 说明 |
-|------|------|
-| `tvmrt_mutex_init/lock/unlock/destroy()` | 互斥锁操作 |
-| `tvmrt_cond_init/wait/signal/broadcast/destroy()` | 条件变量操作 |
-| `tvmrt_thread_create/join()` | 线程操作 |
-| `tvmrt_barrier_init/reset/arrive/sync/destroy()` | 屏障操作 |
-
-### 3.5 `src/runtime/tvmrt_log.c`
-
+#### 日志系统
 | 函数 | 说明 |
 |------|------|
 | `tvmrt_log_set_callback()` | 设置日志回调 |
@@ -109,15 +69,13 @@ tvm_demo/
 | `tvmrt_log_clear()` | 清空日志 |
 | `tvmrt_log_count()` | 获取日志数量 |
 
-### 3.6 `src/runtime/tvmrt_semantic.c`
-
+#### 语义转换层
 | 函数 | 说明 |
 |------|------|
-| `tvmrt_semantic_init()` | 从模型描述初始化运行时上下文 |
+| `tvmrt_semantic_init()` | 初始化运行时上下文 |
 | `tvmrt_semantic_resolve_sid()` | 解析 Storage ID 到指针 |
 
-### 3.7 `src/runtime/tvmrt_engine.c`
-
+#### 调度引擎
 | 函数 | 说明 |
 |------|------|
 | `tvmrt_engine_init()` | 初始化调度引擎（创建线程池，初始化任务队列） |
@@ -127,7 +85,16 @@ tvm_demo/
 | `load_next_layer()` | **辅助函数**：加载下一层任务到队列并唤醒 Worker |
 | `worker_func()` | Worker 线程函数（**链式唤醒机制**） |
 
-### 3.8 `src/model/model_desc.c`
+### 4.2 `src/tvmrt_port_posix.c` (OS 适配)
+
+| 函数 | 说明 |
+|------|------|
+| `tvmrt_mutex_init/lock/unlock/destroy()` | 互斥锁操作 |
+| `tvmrt_cond_init/wait/signal/broadcast/destroy()` | 条件变量操作 |
+| `tvmrt_thread_create/join()` | 线程操作 |
+| `tvmrt_barrier_init/reset/arrive/sync/destroy()` | 屏障操作 |
+
+### 4.3 `src/model_data.c` (模型描述)
 
 | 函数 | 说明 |
 |------|------|
@@ -138,7 +105,7 @@ tvm_demo/
 | `model_fill_args()` | 填充算子参数 |
 | `model_get_op_args()` | 获取指定算子的参数指针 |
 
-### 3.9 `src/ops/default_ops.c`
+### 4.4 `src/ops.c` (算子)
 
 | 函数 | 说明 |
 |------|------|
@@ -150,36 +117,53 @@ tvm_demo/
 | `tvmgen_default_fused_subtract_1()` | 减法算子 (-4.0) |
 | `wrapped_fused_*()` | 包装函数，适配统一签名 |
 
+### 4.5 `src/main.c` (入口)
+
+| 函数 | 说明 |
+|------|------|
+| `init_op_execs()` | 初始化算子执行表 |
+| `tvmgen_default___tvm_main__()` | TVM 主入口，初始化并运行调度引擎 |
+| `tvmgen_default_run()` | 模型推理入口 |
+| `main()` | 测试程序入口 |
+
 ---
 
-## 4. 运行流程
+## 5. 运行流程
 
-### 4.1 调用顺序
+### 5.1 调用顺序
 
 ```
 main()
+  ├─ 分配: input_buffer, output_buffer
+  └─ 调用: tvmgen_default_run(inputs, outputs)
+
+tvmgen_default_run() [main.c]
+  └─ 调用: tvmgen_default___tvm_main__(input, output, const_ws, ws)
+
+tvmgen_default___tvm_main__() [main.c]
+  ├─ 调用: tvmrt_engine_init()  ← 初始化线程池 + 任务队列
   │
-  └──▶ tvmgen_default_run()              [default_lib0.c]
-        │
-        └──▶ tvmgen_default___tvm_main__()  [default_lib1.c]
-              │
-              ├── tvmrt_engine_init()         ← 初始化线程池
-              │
-              ├── init_op_execs()             ← 填充算子参数和函数指针
-              │     ├── model_fill_args()
-              │     └── model_get_op_args()
-              │
-              └── tvmrt_engine_run()          ← BSP 调度执行
-                    │
-                    ├── Layer 1: Node 0, Node 2 (并行)
-                    │     barrier_sync()
-                    ├── Layer 2: Node 1, Node 3 (并行)
-                    │     barrier_sync()
-                    ├── Layer 3: Node 4 (串行)
-                    └── Layer 4: Node 5 (串行)
+  ├─ 调用: init_op_execs()
+  │   ├─ model_fill_args()      ← 填充参数
+  │   └─ model_get_op_args()    ← 获取参数指针
+  │
+  └─ 调用: tvmrt_engine_run(&ctx, schedule)  ← BSP 调度执行
+
+tvmrt_engine_run() [tvmrt.c]
+  ├─ 逐层执行:
+  │   ├─ load_next_layer()      ← 填充队列并 signal 第一个 Worker
+  │   └─ tvmrt_barrier_sync()   ← 等待当前层完成
+  └─ 返回
+
+worker_func() [Worker 线程, tvmrt.c]
+  ├─ lock & wait(队列非空)
+  ├─ pop(op_id) & unlock
+  ├─ signal() 唤醒下一个 Worker  ← 链式唤醒
+  ├─ execute(op_id)
+  └─ barrier_arrive()           ← 通知完成
 ```
 
-### 4.2 BSP 任务队列执行模型
+### 5.2 BSP 任务队列执行模型
 
 **核心机制**: 显式任务队列 + Worker 链式唤醒
 
@@ -241,7 +225,7 @@ main()
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 4.3 数据流
+### 5.3 数据流
 
 ```
 input (10.0)
@@ -261,103 +245,215 @@ input (10.0)
 
 ---
 
-## 5. 参数定义与初始化位置
+## 6. 核心类型定义
 
-### 5.1 核心数据结构定义
+### 6.1 数据结构
 
-| 结构体/类型 | 定义位置 | 说明 |
-|------------|---------|------|
-| `tvmrt_layer_queue_t` | `src/runtime/tvmrt_types.h:150-166` | 层级任务队列（存储当前层待执行算子） |
-| `tvmrt_context_t` | `src/runtime/tvmrt_types.h:139-147` | 运行时上下文（workspace、算子执行表） |
-| `tvmrt_op_exec_t` | `src/runtime/tvmrt_types.h:123-127` | 可执行算子条目（函数指针 + 参数） |
-| `tvmrt_schedule_desc_t` | `src/runtime/tvmrt_types.h:108-111` | 静态调度表（层数组） |
-| `tvmrt_schedule_layer_t` | `src/runtime/tvmrt_types.h:100-103` | 单个调度层（算子 ID 数组） |
-| `tvmrt_op_desc_t` | `src/runtime/tvmrt_types.h:82-91` | 算子描述（名称、后端、输入输出 SID） |
-| `tvmrt_tensor_map_entry_t` | `src/runtime/tvmrt_types.h:66-71` | Tensor 内存映射项 |
+| 结构体 | 定义位置 | 说明 |
+|--------|---------|------|
+| `tvmrt_layer_queue_t` | `tvmrt.h:315` | 层级任务队列（存储当前层待执行算子） |
+| `tvmrt_context_t` | `tvmrt.h:295` | 运行时上下文（workspace、算子执行表） |
+| `tvmrt_op_exec_t` | `tvmrt.h:278` | 可执行算子条目（函数指针 + 参数） |
+| `tvmrt_schedule_desc_t` | `tvmrt.h:263` | 静态调度表（层数组） |
+| `tvmrt_schedule_layer_t` | `tvmrt.h:257` | 单个调度层（算子 ID 数组） |
+| `tvmrt_op_desc_t` | `tvmrt.h:239` | 算子描述（名称、后端、输入输出 SID） |
+| `tvmrt_tensor_map_entry_t` | `tvmrt.h:226` | Tensor 内存映射项 |
 
-### 5.2 全局静态参数
+### 6.2 全局静态参数
 
-#### 模型描述参数（`src/model/model_desc.c`）
+#### 模型描述参数 (`model_data.c`)
 
-| 参数 | 定义位置 | 类型 | 说明 |
-|------|---------|------|------|
-| `g_tensor_map` | L31-38 | `tvmrt_tensor_map_entry_t[]` | 张量内存映射表（5个 SID） |
-| `g_op_descs` | L45-112 | `tvmrt_op_desc_t[]` | 算子描述表（6个节点） |
-| `g_cpu_func_table` | L118-125 | `tvmrt_op_func_t[]` | CPU 函数指针表 |
-| `g_schedule_layers` | L145-150 | `tvmrt_schedule_layer_t[]` | 静态调度表（4层） |
-| `g_layer1_ops` | L134 | `int32_t[]` | Layer 1 算子索引: `{0, 2}` |
-| `g_layer2_ops` | L137 | `int32_t[]` | Layer 2 算子索引: `{1, 3}` |
-| `g_layer3_ops` | L140 | `int32_t[]` | Layer 3 算子索引: `{4}` |
-| `g_layer4_ops` | L143 | `int32_t[]` | Layer 4 算子索引: `{5}` |
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `g_tensor_map[]` | `tvmrt_tensor_map_entry_t[]` | 张量内存映射表（5个 SID） |
+| `g_op_descs[]` | `tvmrt_op_desc_t[]` | 算子描述表（6个节点） |
+| `g_cpu_func_table[]` | `tvmrt_op_func_t[]` | CPU 函数指针表 |
+| `g_schedule_layers[]` | `tvmrt_schedule_layer_t[]` | 静态调度表（4层） |
+| `g_fused_add_args[5]` | `FusedAddArgs[]` | 单输入算子参数 |
+| `g_fused_add3_args` | `FusedAdd3Args` | 双输入算子参数 |
 
-#### 算子参数存储（`src/model/model_desc.c`）
+#### 引擎状态 (`tvmrt.c`)
 
-| 参数 | 定义位置 | 类型 | 初始化位置 |
-|------|---------|------|-----------|
-| `g_fused_add_args[5]` | L196 (声明) | `FusedAddArgs[]` | `model_fill_args()` L217-254 |
-| `g_fused_add3_args` | L197 (声明) | `FusedAdd3Args` | `model_fill_args()` L257-263 |
-
-> **注**: 这些参数在 `tvmgen_default___tvm_main__()` 调用 `init_op_execs()` 时被填充。
-
-#### 引擎状态（`src/runtime/tvmrt_engine.c`）
-
-| 参数 | 定义位置 | 类型 | 说明 |
-|------|---------|------|------|
-| `g_engine` | L36 (声明) | `engine_state_t` | 全局引擎状态（线程池、任务队列、Barrier） |
-| `g_engine.task_queue` | 成员变量 | `tvmrt_layer_queue_t` | 当前层任务队列 |
-| `g_engine.workers[4]` | 成员变量 | `tvmrt_thread_t[]` | Worker 线程数组 |
-| `g_engine.layer_barrier` | 成员变量 | `tvmrt_barrier_t` | 层间同步屏障 |
-
-### 5.3 函数参数传递流程
-
-```
-main()
-  ├─ 分配: input_buffer, output_buffer
-  └─ 调用: tvmgen_default_run(input, output)
-
-tvmgen_default_run() [default_lib0.c]
-  ├─ 分配: global_workspace, global_const_workspace
-  └─ 调用: tvmgen_default___tvm_main__(input, output, const_ws, ws)
-
-tvmgen_default___tvm_main__() [default_lib1.c]
-  ├─ 调用: init_op_execs(input, output, ws, const_ws)
-  │   ├─ 调用: model_fill_args(NULL, input, output, ws, const_ws)
-  │   │   └─ 填充: g_fused_add_args[], g_fused_add3_args
-  │   └─ 调用: model_get_op_args(op_id)
-  │       └─ 返回: &g_fused_add_args[op_id] 或 &g_fused_add3_args
-  │
-  ├─ 构造: tvmrt_context_t ctx = {.workspace=ws, .op_execs=g_op_execs, ...}
-  └─ 调用: tvmrt_engine_run(&ctx, schedule)
-
-tvmrt_engine_run() [tvmrt_engine.c]
-  ├─ 设置: g_engine.current_ctx = ctx
-  ├─ 逐层执行:
-  │   ├─ 调用: load_next_layer()
-  │   │   └─ 填充 g_engine.task_queue.tasks[] 并唤醒 Worker
-  │   └─ 调用: tvmrt_barrier_sync() (等待当前层完成)
-  └─ 返回
-
-worker_func() [Worker 线程]
-  ├─ 从 g_engine.task_queue 获取 op_id
-  ├─ 获取: exec = &ctx->op_execs[op_id]
-  ├─ 调用: exec->func(exec->args)  // 执行算子
-  └─ 调用: tvmrt_barrier_arrive()  // 通知完成
-```
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `g_engine` | `engine_state_t` | 全局引擎状态（线程池、任务队列、Barrier） |
+| `g_engine.task_queue` | `tvmrt_layer_queue_t` | 当前层任务队列 |
+| `g_engine.workers[4]` | `tvmrt_thread_t[]` | Worker 线程数组 |
+| `g_engine.layer_barrier` | `tvmrt_barrier_t` | 层间同步屏障 |
 
 ---
 
-## 6. 编译与运行
+## 7. 编译与运行
+
+### 7.1 快速开始
 
 ```bash
-# 编译模块化版本
+# 编译
 make all
 
 # 运行
 make run
 
-# 输出
+# 清理
+make clean
+```
+
+### 7.2 预期输出
+
+```
+Running runner...
+--------------------------------
 验证开始...
 输入值: 10.000000
 执行成功！
 输出值: 23.000000 (预期: 23.000000)
 ```
+
+### 7.3 编译选项
+
+```makefile
+# Makefile 配置
+CC = clang
+CFLAGS = -Isrc -Iinclude -Wno-everything -g -O2
+
+# Worker 线程数配置（在 tvmrt.h 中）
+#define TVMRT_NUM_WORKERS 4  // 可设为 0 启用单线程模式
+
+# 日志开关（在 tvmrt.h 中）
+#define TVMRT_LOG_ENABLE 1   // 设为 0 禁用日志
+```
+
+---
+
+## 8. 架构优势
+
+### 8.1 简洁性
+
+| 维度 | 简化前 | 简化后 | 改善 |
+|------|--------|--------|------|
+| 文件数量 | 18 个 | 6 个 | **-67%** |
+| 目录层级 | 3 层 | 1 层 | **扁平化** |
+| 头文件数 | 9 个 | 1 个 | **-89%** |
+| Include 复杂度 | 多文件依赖 | 单文件 API | **极简** |
+
+### 8.2 可移植性
+
+- ✅ **单一头文件**：只需 `#include "tvmrt.h"`
+- ✅ **OS 适配分离**：替换 `tvmrt_port_*.c` 即可移植
+- ✅ **零外部依赖**：除 pthread 外无其他依赖
+- ✅ **静态内存**：零动态分配，适合嵌入式
+
+### 8.3 集成便利性
+
+对于新项目集成，只需：
+1. 复制 `src/` 下的 6 个文件
+2. Include `tvmrt.h`
+3. 链接 pthread（如需多线程）
+4. 替换 `model_data.c` 和 `ops.c` 为你的模型
+
+---
+
+## 9. 技术特性
+
+### 9.1 任务队列 + 链式唤醒
+
+**优势**:
+- 减少不必要的上下文切换
+- 按需唤醒 Worker，降低 CPU 开销
+- 清晰表达任务分发语义
+
+**对比**:
+
+| 机制 | 唤醒方式 | 上下文切换 | 适用场景 |
+|------|----------|-----------|---------|
+| 广播唤醒 | `broadcast` 唤醒所有 Worker | 高 | 简单实现 |
+| **链式唤醒** | `signal` 逐个唤醒 | **低** | **高效调度** |
+
+### 9.2 BSP 静态分层
+
+**优势**:
+- 保证内存安全（TVM 静态内存规划）
+- 层间 Barrier 确保依赖正确
+- 编译期生成，零运行时开销
+
+### 9.3 零动态分配
+
+**实现**:
+- Workspace 静态分配
+- 调度表编译期确定
+- 线程池启动时创建
+
+**适用场景**: 嵌入式、实时系统
+
+---
+
+## 10. 扩展与定制
+
+### 10.1 替换 OS 适配层
+
+创建 `tvmrt_port_rtos.c` 实现 RTOS 线程接口：
+
+```c
+// 实现以下函数即可
+int tvmrt_mutex_init(tvmrt_mutex_t* m);
+int tvmrt_cond_wait(tvmrt_cond_t* c, tvmrt_mutex_t* m);
+// ... 其他接口
+```
+
+### 10.2 禁用多线程
+
+```c
+// 在 tvmrt.h 中设置
+#define TVMRT_NUM_WORKERS 0
+```
+
+自动回退到单线程模式，无需修改代码。
+
+### 10.3 更换模型
+
+1. 用 TVM 编译新模型
+2. 替换 `model_data.c`（描述表）
+3. 替换 `ops.c`（算子实现）
+4. 更新 `main.c` 中的 workspace 大小
+
+---
+
+## 11. 许可与引用
+
+本项目为 TVM Runtime 的简化嵌入式实现示例。
+
+**参考资料**:
+- TVM 官方文档: https://tvm.apache.org/
+- BSP 模型: Bulk Synchronous Parallel
+
+---
+
+## 12. 附录
+
+### 12.1 常见问题
+
+**Q: 如何调整 Worker 线程数？**  
+A: 修改 `tvmrt.h` 中的 `TVMRT_NUM_WORKERS`
+
+**Q: 如何启用日志？**  
+A: 设置 `TVMRT_LOG_ENABLE 1` 并重新编译
+
+**Q: 支持 GPU 算子吗？**  
+A: 当前仅支持 CPU，GPU 支持需扩展 `tvmrt_backend_kind_t`
+
+### 12.2 代码统计
+
+```
+总计: ~1700 行代码（含注释）
+- tvmrt.h:  500 行
+- tvmrt.c:  430 行
+- model_data.c: 280 行
+- tvmrt_port_posix.c: 200 行
+- main.c:   165 行
+- ops.c:    130 行
+```
+
+---
+
+**最后更新**: 2026-01-12  
+**架构版本**: 简化版 v1.0（6 文件）

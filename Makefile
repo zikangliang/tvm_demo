@@ -1,5 +1,5 @@
 # ==========================================
-# TVM Runtime Modular Makefile (Step 7)
+# TVM Runtime Simplified Makefile
 # Platform: Mac
 # ==========================================
 
@@ -13,35 +13,24 @@ CFLAGS = -Isrc -Iinclude -Wno-everything -g -O2
 TARGET = runner
 
 # ==========================================
-# 源文件列表 (模块化架构)
+# 源文件列表 (简化架构 - 6 文件)
 # ==========================================
 
-# 入口文件
-ENTRY_SRCS = src/main.c src/default_lib0.c src/default_lib1.c
+SRCS = src/main.c \
+       src/tvmrt.c \
+       src/tvmrt_port_posix.c \
+       src/model_data.c \
+       src/ops.c
 
-# Runtime 模块
-RUNTIME_SRCS = src/runtime/tvmrt_port_posix.c \
-               src/runtime/tvmrt_log.c \
-               src/runtime/tvmrt_semantic.c \
-               src/runtime/tvmrt_engine.c
-
-# 模型描述 (编译器生成)
-MODEL_SRCS = src/model/model_desc.c
-
-# 算子实现
-OPS_SRCS = src/ops/default_ops.c
-
-# 所有源文件
-SRCS = $(ENTRY_SRCS) $(RUNTIME_SRCS) $(MODEL_SRCS) $(OPS_SRCS)
 OBJS = $(SRCS:.c=.o)
 
 # ==========================================
 # 规则定义
 # ==========================================
 
-# 默认目标：模块化版本
+# 默认目标
 all: $(TARGET)
-	@echo "Built MODULAR version (Step 7)"
+	@echo "Built simplified version (6 files)"
 
 # 链接步骤
 $(TARGET): $(OBJS)
@@ -54,7 +43,7 @@ $(TARGET): $(OBJS)
 
 # 清理规则
 clean:
-	rm -f $(OBJS) $(TARGET) $(TARGET)_legacy
+	rm -f $(OBJS) $(TARGET)
 	@echo "Cleaned up."
 
 # 快捷运行

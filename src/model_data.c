@@ -1,5 +1,5 @@
 /**
- * @file model_desc.c
+ * @file model_data.c
  * @brief 模型描述符实现 (编译期生成)
  * 
  * 本文件包含通常由 TVM 编译器自动生成的静态描述表。包括：
@@ -9,8 +9,37 @@
  * - CPU 函数表
  */
 
-#include "model_desc.h"
+#include "tvmrt.h"
 #include <stddef.h>
+
+// ============================================================
+// 模型特定常量
+// ============================================================
+
+#define MODEL_NUM_TENSORS  5
+#define MODEL_NUM_OPS      6
+#define MODEL_NUM_LAYERS   4
+
+// ============================================================
+// 参数结构体 (模型特定)
+// ============================================================
+
+/** 单输入 fused_add 算子的参数结构 */
+typedef struct {
+    float* p0;
+    float* output;
+    uint8_t* const_ws;
+    uint8_t* ws;
+} FusedAddArgs;
+
+/** 双输入 fused_add_3 算子的参数结构 */
+typedef struct {
+    float* p0;
+    float* p1;
+    float* output;
+    uint8_t* const_ws;
+    uint8_t* ws;
+} FusedAdd3Args;
 
 // ============================================================
 // 包装函数前向声明

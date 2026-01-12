@@ -6,12 +6,26 @@
  * 以及将它们适配为统一签名的包装函数。
  */
 
-#include "../model/model_desc.h"
-#include <stdint.h>
+#include "tvmrt.h"
 
 // ============================================================
-// TVM 生成的融合算子 (原始签名)
+// 参数结构体 (模型特定)
 // ============================================================
+
+typedef struct {
+    float* p0;
+    float* output;
+    uint8_t* const_ws;
+    uint8_t* ws;
+} FusedAddArgs;
+
+typedef struct {
+    float* p0;
+    float* p1;
+    float* output;
+    uint8_t* const_ws;
+    uint8_t* ws;
+} FusedAdd3Args;
 
 #ifdef __cplusplus
 extern "C"
