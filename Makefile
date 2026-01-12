@@ -1,5 +1,6 @@
 # ==========================================
 # TVM Runtime Simplified Makefile
+# 保留 lib0/lib1，Runtime 工具单文件化
 # Platform: Mac
 # ==========================================
 
@@ -13,10 +14,12 @@ CFLAGS = -Isrc -Iinclude -Wno-everything -g -O2
 TARGET = runner
 
 # ==========================================
-# 源文件列表 (简化架构 - 6 文件)
+# 简化版本 (8 文件)
 # ==========================================
 
 SRCS = src/main.c \
+       src/default_lib0.c \
+       src/default_lib1.c \
        src/tvmrt.c \
        src/tvmrt_port_posix.c \
        src/model_data.c \
@@ -24,60 +27,65 @@ SRCS = src/main.c \
 
 OBJS = $(SRCS:.c=.o)
 
-# ==========================================
-# 规则定义
-# ==========================================
-
 # 默认目标
 all: $(TARGET)
-	@echo "Built simplified version (6 files)"
+	@echo "Built simplified version (8 files)"
 
-# 链接步骤
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) -lpthread
 	@echo "Build successful! Executable: ./$(TARGET)"
 
-# 编译步骤
+# ==========================================
+# 模块化参考版本 (18 文件，保留旧结构)
+# ==========================================
+
+MODULAR_ENTRY = src/main_test.c src/default_lib0.c src/default_lib1.c
+MODULAR_RUNTIME = src/runtime/tvmrt_port_posix.c \
+                  src/runtime/tvmrt_log.c \
+                  src/runtime/tvmrt_semantic.c \
+                  src/runtime/tvmrt_engine.c
+MODULAR_MODEL = src/model/model_desc.c
+MODULAR_OPS = src/ops/default_ops.c
+
+MODULAR_SRCS = $(MODULAR_ENTRY) $(MODULAR_RUNTIME) $(MODULAR_MODEL) $(MODULAR_OPS)
+MODULAR_OBJS = $(patsubst %.c,%.o,$(MODULAR_SRCS))
+
+modular: $(MODULAR_OBJS)
+	$(CC) $(CFLAGS) -o $(TARGET)_modular $(MODULAR_OBJS) -lpthread
+	@echo "Built modular reference version (18 files)"
+	@echo "Executable: ./$(TARGET)_modular"
+
+run_modular: modular
+	@echo "Running $(TARGET)_modular..."
+	@echo "--------------------------------"
+	@./$(TARGET)_modular
+
+# ==========================================
+# 通用规则
+# ==========================================
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# 清理规则
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(OBJS) $(MODULAR_OBJS) $(TARGET) $(TARGET)_modular
 	@echo "Cleaned up."
 
-# 快捷运行
 run: $(TARGET)
 	@echo "Running $(TARGET)..."
 	@echo "--------------------------------"
 	@./$(TARGET)
 
 # ==========================================
-# Legacy 版本构建 (Step 6 BSP)
-# ==========================================
-LEGACY_SRCS = src/main.c src/default_lib0.c src/default_lib1_legacy.c
-LEGACY_OBJS = $(LEGACY_SRCS:.c=.o)
-
-legacy: $(LEGACY_OBJS)
-	$(CC) $(CFLAGS) -o $(TARGET)_legacy $(LEGACY_OBJS) -lpthread
-	@echo "Built LEGACY version (Step 6 BSP)"
-	@echo "Executable: ./$(TARGET)_legacy"
-
-run_legacy: legacy
-	@echo "Running $(TARGET)_legacy..."
-	@echo "--------------------------------"
-	@./$(TARGET)_legacy
-
-# ==========================================
 # 帮助信息
 # ==========================================
 help:
 	@echo "TVM Runtime Build Targets:"
-	@echo "  make all     - Build modular version (Step 7, default)"
-	@echo "  make run     - Build and run modular version"
-	@echo "  make legacy  - Build legacy version (Step 6 BSP)"
-	@echo "  make run_legacy - Run legacy version"
-	@echo "  make clean   - Remove all build artifacts"
-	@echo "  make help    - Show this message"
+	@echo "  make all         - Build simplified version (8 files, default)"
+	@echo "  make run         - Build and run simplified version"
+	@echo "  make modular     - Build modular reference (18 files)"
+	@echo "  make run_modular - Build and run modular reference"
+	@echo "  make clean       - Remove all build artifacts"
+	@echo "  make help        - Show this message"
 
-.PHONY: all clean run legacy run_legacy help
+.PHONY: all modular clean run run_modular help
