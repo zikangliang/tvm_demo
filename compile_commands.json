@@ -1,0 +1,121 @@
+[
+  {
+    "file": "src/main.c",
+    "arguments": [
+      "clang",
+      "-Isrc",
+      "-Iinclude",
+      "-Wno-everything",
+      "-g",
+      "-O2",
+      "-c",
+      "src/main.c",
+      "-o",
+      "src/main.o"
+    ],
+    "directory": "/Users/liang/Desktop/program/c/tvm_demo",
+    "output": "src/main.o"
+  },
+  {
+    "file": "src/default_lib0.c",
+    "arguments": [
+      "clang",
+      "-Isrc",
+      "-Iinclude",
+      "-Wno-everything",
+      "-g",
+      "-O2",
+      "-c",
+      "src/default_lib0.c",
+      "-o",
+      "src/default_lib0.o"
+    ],
+    "directory": "/Users/liang/Desktop/program/c/tvm_demo",
+    "output": "src/default_lib0.o"
+  },
+  {
+    "file": "src/default_lib1.c",
+    "arguments": [
+      "clang",
+      "-Isrc",
+      "-Iinclude",
+      "-Wno-everything",
+      "-g",
+      "-O2",
+      "-c",
+      "src/default_lib1.c",
+      "-o",
+      "src/default_lib1.o"
+    ],
+    "directory": "/Users/liang/Desktop/program/c/tvm_demo",
+    "output": "src/default_lib1.o"
+  },
+  {
+    "file": "src/tvmrt.c",
+    "arguments": [
+      "clang",
+      "-Isrc",
+      "-Iinclude",
+      "-Wno-everything",
+      "-g",
+      "-O2",
+      "-c",
+      "src/tvmrt.c",
+      "-o",
+      "src/tvmrt.o"
+    ],
+    "directory": "/Users/liang/Desktop/program/c/tvm_demo",
+    "output": "src/tvmrt.o"
+  },
+  {
+    "file": "src/tvmrt_port_posix.c",
+    "arguments": [
+      "clang",
+      "-Isrc",
+      "-Iinclude",
+      "-Wno-everything",
+      "-g",
+      "-O2",
+      "-c",
+      "src/tvmrt_port_posix.c",
+      "-o",
+      "src/tvmrt_port_posix.o"
+    ],
+    "directory": "/Users/liang/Desktop/program/c/tvm_demo",
+    "output": "src/tvmrt_port_posix.o"
+  },
+  {
+    "file": "src/model_data.c",
+    "arguments": [
+      "clang",
+      "-Isrc",
+      "-Iinclude",
+      "-Wno-everything",
+      "-g",
+      "-O2",
+      "-c",
+      "src/model_data.c",
+      "-o",
+      "src/model_data.o"
+    ],
+    "directory": "/Users/liang/Desktop/program/c/tvm_demo",
+    "output": "src/model_data.o"
+  },
+  {
+    "file": "src/ops.c",
+    "arguments": [
+      "clang",
+      "-Isrc",
+      "-Iinclude",
+      "-Wno-everything",
+      "-g",
+      "-O2",
+      "-c",
+      "src/ops.c",
+      "-o",
+      "src/ops.o"
+    ],
+    "directory": "/Users/liang/Desktop/program/c/tvm_demo",
+    "output": "src/ops.o"
+  }
+]

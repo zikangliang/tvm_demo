@@ -106,7 +106,7 @@ void tvmrt_barrier_reset(tvmrt_barrier_t* b, int32_t target) {
     b->target = target;
     pthread_mutex_unlock(&b->mutex);
 }
-
+// 锁是用来保证线程安全的， 条件变量是worker线程等待的， 屏障是主线程等待的
 void tvmrt_barrier_arrive(tvmrt_barrier_t* b) {
     if (!b) return;
     pthread_mutex_lock(&b->mutex);
