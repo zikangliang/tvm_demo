@@ -97,33 +97,54 @@ int32_t tvmgen_default_fused_subtract_1(float* p0, float* T_subtract,
 // ============================================================
 // 将 TVM 生成的算子适配为 Runtime 的统一
 // operator_func_t 签名以便调度。
+//
+// TVMRT_LOG_PARAMS 宏在 TVMRT_LOG_ENABLE=0 时完全展开为空，
+// 实现零运行时开销。
 
 int32_t wrapped_fused_add(void* args) {
     FusedAddArgs* a = (FusedAddArgs*)args;
-    return tvmgen_default_fused_add(a->p0, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_PARAMS("fused_add", a->p0 ? *(a->p0) : 0.0f, 0.0f, a->output);
+    int32_t ret = tvmgen_default_fused_add(a->p0, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_RESULT("fused_add", a->output);
+    return ret;
 }
 
 int32_t wrapped_fused_add_1(void* args) {
     FusedAddArgs* a = (FusedAddArgs*)args;
-    return tvmgen_default_fused_add_1(a->p0, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_PARAMS("fused_add_1", a->p0 ? *(a->p0) : 0.0f, 0.0f, a->output);
+    int32_t ret = tvmgen_default_fused_add_1(a->p0, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_RESULT("fused_add_1", a->output);
+    return ret;
 }
 
 int32_t wrapped_fused_add_2(void* args) {
     FusedAddArgs* a = (FusedAddArgs*)args;
-    return tvmgen_default_fused_add_2(a->p0, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_PARAMS("fused_add_2", a->p0 ? *(a->p0) : 0.0f, 0.0f, a->output);
+    int32_t ret = tvmgen_default_fused_add_2(a->p0, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_RESULT("fused_add_2", a->output);
+    return ret;
 }
 
 int32_t wrapped_fused_add_3(void* args) {
     FusedAdd3Args* a = (FusedAdd3Args*)args;
-    return tvmgen_default_fused_add_3(a->p0, a->p1, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_PARAMS("fused_add_3", a->p0 ? *(a->p0) : 0.0f, a->p1 ? *(a->p1) : 0.0f, a->output);
+    int32_t ret = tvmgen_default_fused_add_3(a->p0, a->p1, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_RESULT("fused_add_3", a->output);
+    return ret;
 }
 
 int32_t wrapped_fused_subtract(void* args) {
     FusedAddArgs* a = (FusedAddArgs*)args;
-    return tvmgen_default_fused_subtract(a->p0, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_PARAMS("fused_subtract", a->p0 ? *(a->p0) : 0.0f, 0.0f, a->output);
+    int32_t ret = tvmgen_default_fused_subtract(a->p0, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_RESULT("fused_subtract", a->output);
+    return ret;
 }
 
 int32_t wrapped_fused_subtract_1(void* args) {
     FusedAddArgs* a = (FusedAddArgs*)args;
-    return tvmgen_default_fused_subtract_1(a->p0, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_PARAMS("fused_subtract_1", a->p0 ? *(a->p0) : 0.0f, 0.0f, a->output);
+    int32_t ret = tvmgen_default_fused_subtract_1(a->p0, a->output, a->const_ws, a->ws);
+    TVMRT_LOG_RESULT("fused_subtract_1", a->output);
+    return ret;
 }

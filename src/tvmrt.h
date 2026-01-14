@@ -188,6 +188,11 @@ typedef struct {
     int32_t worker_id;
     int32_t ret_code;
     tvmrt_log_level_t level;
+
+    // 参数信息 (用于调试和验证)
+    float p0_value;     // 输入 p0 的值
+    float p1_value;     // 输入 p1 的值 (单输入算子为 0)
+    float* output_ptr;  // 输出指针
 } tvmrt_log_record_t;
 
 // ============================================================
@@ -208,6 +213,7 @@ int32_t tvmrt_log_count(void);
 
 #if TVMRT_LOG_ENABLE
 
+// 调度引擎使用的日志宏
 #define TVMRT_LOG_OP(op_id_, op_name_, worker_id_, ret_code_, level_) \
     do { \
         tvmrt_log_record_t _rec = { \
@@ -227,11 +233,49 @@ int32_t tvmrt_log_count(void);
     TVMRT_LOG_OP((op_id), (op_name), (worker_id), (ret_code), \
                  ((ret_code) == 0) ? TVMRT_LOG_INFO : TVMRT_LOG_ERROR)
 
+// 包装函数使用的参数日志宏 (零开销)
+// 用法: TVMRT_LOG_PARAMS("fused_add", p0_val, 0, output_ptr)
+//       TVMRT_LOG_RESULT(name, output_ptr)
+#define TVMRT_LOG_PARAMS(name_, p0_, p1_, out_ptr_) \
+    do { \
+        tvmrt_log_record_t _rec = { \
+            .op_id = -1, \
+            .op_name = (name_), \
+            .worker_id = -1, \
+            .ret_code = 0, \
+            .level = TVMRT_LOG_DEBUG, \
+            .p0_value = (p0_), \
+            .p1_value = (p1_), \
+            .output_ptr = (out_ptr_) \
+        }; \
+        tvmrt_log_push(&_rec); \
+    } while(0)
+
+// 算子执行完成后记录输出值
+#define TVMRT_LOG_RESULT(name_, out_ptr_) \
+    do { \
+        float _out_val = (out_ptr_) ? *(out_ptr_) : 0.0f; \
+        tvmrt_log_record_t _rec = { \
+            .op_id = -1, \
+            .op_name = (name_), \
+            .worker_id = -1, \
+            .ret_code = 0, \
+            .level = TVMRT_LOG_INFO, \
+            .p0_value = _out_val, \
+            .p1_value = 0.0f, \
+            .output_ptr = NULL \
+        }; \
+        tvmrt_log_push(&_rec); \
+    } while(0)
+
 #else
 
+// 日志禁用时，完全展开为空 (零变量、零函数调用)
 #define TVMRT_LOG_OP(op_id_, op_name_, worker_id_, ret_code_, level_) ((void)0)
 #define TVMRT_LOG_OP_START(op_id, op_name, worker_id) ((void)0)
 #define TVMRT_LOG_OP_END(op_id, op_name, worker_id, ret_code) ((void)0)
+#define TVMRT_LOG_PARAMS(name_, p0_, p1_, out_ptr_) ((void)0)
+#define TVMRT_LOG_RESULT(name_, out_ptr_) ((void)0)
 
 #endif  // TVMRT_LOG_ENABLE
 

@@ -13,6 +13,7 @@
 - ✅ Runtime 工具单文件化
 - ✅ 零动态内存分配
 - ✅ 平台可移植（POSIX / RTOS）
+- ✅ 零开销日志系统（编译开关控制）
 
 ---
 
@@ -423,6 +424,8 @@ make clean
 
 ### 8.2 预期输出
 
+#### 默认模式（日志启用）
+
 ```
 ========================================
   TVM Runtime: 16算子 / 9层 / 8内存槽
@@ -431,6 +434,42 @@ make clean
 预期输出: 235.0
 
 执行中...
+=== Layer 1 (4 ops) ===
+[DEBUG][W-1] fused_add: p0=10.00 → output@0x...
+[INFO][W-1] fused_add → result=11.00
+[DEBUG][W-1] fused_add_1: p0=10.00 → output@0x...
+[INFO][W-1] fused_add_1 → result=13.00
+...
+=== Layer 9 (1 op) ===
+[DEBUG][W-1] fused_add_3: p0=139.00, p1=96.00 → output@0x...
+[INFO][W-1] fused_add_3 → result=235.00
+
+--- 结果 ---
+执行状态: 成功
+实际输出: 235.0
+
+✅ 测试通过! 结果正确
+========================================
+```
+
+#### 零开销模式（日志禁用）
+
+```bash
+make LOG_ENABLE=0
+```
+
+```
+========================================
+  TVM Runtime: 16算子 / 9层 / 8内存槽
+========================================
+输入值: 10.0
+预期输出: 235.0
+
+执行中...
+=== Layer 1 (4 ops) ===
+=== Layer 2 (2 ops) ===
+...
+=== Layer 9 (1 op) ===
 
 --- 结果 ---
 执行状态: 成功
@@ -446,14 +485,29 @@ make clean
 # Makefile 配置
 CC = clang
 CFLAGS = -Isrc -Iinclude -Wno-everything -g -O2
+
+# 日志开关 (1=启用, 0=零开销禁用)
+LOG_ENABLE ?= 1
+CFLAGS += -DTVMRT_LOG_ENABLE=$(LOG_ENABLE)
 ```
 
 ```c
 // tvmrt.h 中配置
 #define TVMRT_NUM_WORKERS 4      // Worker 线程数 (0=单线程)
-#define TVMRT_LOG_ENABLE 1       // 启用日志
+#define TVMRT_LOG_ENABLE 1       // 日志开关 (通过 Makefile 设置)
 #define TVMRT_MAX_OPS 64         // 最大算子数
 #define TVMRT_MAX_LAYERS 32      // 最大层数
+```
+
+**日志开关使用**:
+
+```bash
+# 启用日志（默认）
+make
+make LOG_ENABLE=1
+
+# 禁用日志（零运行时开销）
+make LOG_ENABLE=0
 ```
 
 ---
@@ -543,22 +597,30 @@ main.c
 
 ## 12. 常见问题
 
-**Q: 如何调整 Worker 线程数？**  
+**Q: 如何调整 Worker 线程数？**
 A: 修改 `tvmrt.h` 中的 `TVMRT_NUM_WORKERS`
 
-**Q: 如何启用日志？**  
-A: 设置 `TVMRT_LOG_ENABLE 1` 并重新编译
+**Q: 如何启用/禁用日志？**
+A: 使用 `make LOG_ENABLE=1` 启用日志，`make LOG_ENABLE=0` 禁用日志（零开销）
 
-**Q: 为什么使用单线程模式？**  
+**Q: 日志输出格式是什么意思？**
+A: 日志包含两种类型：
+   - `[DEBUG] 算子名: p0=x → output@地址` - 执行前的输入参数
+   - `[INFO] 算子名 → result=x` - 执行后的计算结果
+
+**Q: 为什么使用单线程模式？**
 A: 当前默认使用 `tvmrt_engine_run_single` 以确保稳定性
 
-**Q: lib0 和 lib1 的区别？**  
-A: 
+**Q: lib0 和 lib1 的区别？**
+A:
 - `lib0`: 负责 **内存分配**（workspace）和 **外部接口**
 - `lib1`: 负责 **Runtime 初始化**和 **调度执行**
 
-**Q: 内存复用是如何实现的？**  
+**Q: 内存复用是如何实现的？**
 A: 通过在 `model_data.c` 中将不同 SID 映射到相同的 workspace 偏移
+
+**Q: 如何验证内存复用是否正确？**
+A: 启用日志后，观察相同 `output@` 地址被多次写入时的 `result` 值变化
 
 ---
 
@@ -594,6 +656,6 @@ Runtime 层:
 
 ---
 
-**最后更新**: 2026-01-13  
-**模型规格**: 16 算子 / 9 层 / 8 内存槽  
+**最后更新**: 2026-01-14
+**模型规格**: 16 算子 / 9 层 / 8 内存槽
 **预期结果**: input=10.0 → output=235.0

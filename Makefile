@@ -10,6 +10,10 @@ CC = clang
 # 编译选项
 CFLAGS = -Isrc -Iinclude -Wno-everything -g -O2
 
+# 日志开关 (设为 0 禁用日志，实现零运行时开销)
+LOG_ENABLE ?= 1
+CFLAGS += -DTVMRT_LOG_ENABLE=$(LOG_ENABLE)
+
 # 目标文件名
 TARGET = runner
 

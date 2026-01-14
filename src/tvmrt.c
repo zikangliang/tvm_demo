@@ -188,9 +188,11 @@ static void* worker_func(void* arg) {
         if (op_id >= 0 && op_id < ctx->op_count) {
             tvmrt_op_exec_t* exec = &ctx->op_execs[op_id];
             if (exec->func) {
-                TVMRT_LOG_OP_START(op_id, exec->name, worker_id);
+                // 调度引擎日志已禁用，由包装函数中的参数日志替代
+                // TVMRT_LOG_OP_START(op_id, exec->name, worker_id);
                 int32_t ret = exec->func(exec->args);
-                TVMRT_LOG_OP_END(op_id, exec->name, worker_id, ret);
+                // TVMRT_LOG_OP_END(op_id, exec->name, worker_id, ret);
+                (void)ret;  // 避免未使用变量警告
             }
         }
         
@@ -327,20 +329,25 @@ int tvmrt_engine_run(
     // 逐层执行
     for (int32_t layer_idx = 0; layer_idx < schedule->layer_count; layer_idx++) {
         const tvmrt_schedule_layer_t* layer = &schedule->layers[layer_idx];
-        
+
+        // 层边界标记
+        printf("=== Layer %d (%d op%s) ===\n",
+               layer_idx + 1, layer->count, layer->count == 1 ? "" : "s");
+
         if (layer->count == 0) {
             continue;
         }
-        
+
         if (layer->count == 1) {
             // 单任务: 直接执行
             int32_t op_idx = layer->op_indices[0];
             if (op_idx >= 0 && op_idx < ctx->op_count) {
                 tvmrt_op_exec_t* exec = &ctx->op_execs[op_idx];
                 if (exec->func) {
-                    TVMRT_LOG_OP_START(op_idx, exec->name, -1);
+                    // 调度引擎日志已禁用，由包装函数中的参数日志替代
+                    // TVMRT_LOG_OP_START(op_idx, exec->name, -1);
                     int32_t ret = exec->func(exec->args);
-                    TVMRT_LOG_OP_END(op_idx, exec->name, -1, ret);
+                    // TVMRT_LOG_OP_END(op_idx, exec->name, -1, ret);
                     if (ret != 0) return ret;
                 }
             }
@@ -365,24 +372,29 @@ int tvmrt_engine_run_single(
     if (!ctx || !schedule) {
         return -1;
     }
-    
+
     // 简单串行执行
     for (int32_t layer_idx = 0; layer_idx < schedule->layer_count; layer_idx++) {
         const tvmrt_schedule_layer_t* layer = &schedule->layers[layer_idx];
-        
+
+        // 层边界标记
+        printf("=== Layer %d (%d op%s) ===\n",
+               layer_idx + 1, layer->count, layer->count == 1 ? "" : "s");
+
         for (int32_t task_idx = 0; task_idx < layer->count; task_idx++) {
             int32_t op_idx = layer->op_indices[task_idx];
             if (op_idx >= 0 && op_idx < ctx->op_count) {
                 tvmrt_op_exec_t* exec = &ctx->op_execs[op_idx];
                 if (exec->func) {
-                    TVMRT_LOG_OP_START(op_idx, exec->name, -1);
+                    // 调度引擎日志已禁用，由包装函数中的参数日志替代
+                    // TVMRT_LOG_OP_START(op_idx, exec->name, -1);
                     int32_t ret = exec->func(exec->args);
-                    TVMRT_LOG_OP_END(op_idx, exec->name, -1, ret);
+                    // TVMRT_LOG_OP_END(op_idx, exec->name, -1, ret);
                     if (ret != 0) return ret;
                 }
             }
         }
     }
-    
+
     return 0;
 }
