@@ -45,14 +45,32 @@ $(TARGET): $(OBJS)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clean:
-	rm -f src/*.o $(TARGET)
-	@echo "Cleaned up."
-
 run: $(TARGET)
 	@echo "Running $(TARGET)..."
 	@echo "--------------------------------"
 	@./$(TARGET)
+
+# ==========================================
+# 单元测试
+# ==========================================
+TEST_SRCS = src/test_new_ops.c src/ops.c src/tvmrt.c src/tvmrt_port_posix.c
+TEST_TARGET = test_new_ops
+
+test: $(TEST_TARGET)
+	@echo "Running unit tests..."
+	@./$(TEST_TARGET)
+
+$(TEST_TARGET): $(TEST_SRCS)
+	@echo "Building unit tests..."
+	$(CC) -Isrc -Iinclude -Wno-everything -g -O2 -DTVMRT_LOG_ENABLE=0 \
+		$(TEST_SRCS) -o $(TEST_TARGET) -lm -lpthread
+
+clean: clean-test
+	rm -f src/*.o $(TARGET)
+	@echo "Cleaned up."
+
+clean-test:
+	rm -f $(TEST_TARGET)
 
 # ==========================================
 # 帮助信息
@@ -61,7 +79,8 @@ help:
 	@echo "TVM Runtime Build Targets:"
 	@echo "  make all   - Build the model"
 	@echo "  make run   - Build and run"
+	@echo "  make test  - Build and run unit tests"
 	@echo "  make clean - Remove build artifacts"
 	@echo "  make help  - Show this message"
 
-.PHONY: all clean run help
+.PHONY: all clean clean-test run help test

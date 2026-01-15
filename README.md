@@ -6,6 +6,8 @@
 
 当前实现了一个 **16 算子 / 9 层 / 8 内存槽** 的复杂模型，用于验证内存复用和 BSP 调度的正确性。
 
+**算子库**：支持 **15 种算子**（6 种基础算子 + 9 种扩展算子），涵盖激活函数、基础运算和常量运算。
+
 **核心特性**:
 - ✅ BSP 静态分层调度
 - ✅ 极限内存复用（8 槽各复用 1-3 次）
@@ -14,6 +16,7 @@
 - ✅ 零动态内存分配
 - ✅ 平台可移植（POSIX / RTOS）
 - ✅ 零开销日志系统（编译开关控制）
+- ✅ 单元测试框架（14 项测试）
 
 ---
 
@@ -31,8 +34,13 @@ tvm_demo/
 │   ├── tvmrt.c                # Runtime 统一实现
 │   ├── tvmrt_port_posix.c     # OS 适配层 (POSIX)
 │   ├── model_data.c           # 模型静态描述 (16算子/9层)
-│   └── ops.c                  # 算子实现 (6种算子)
-└── Makefile
+│   ├── ops.c                  # 算子实现 (15种算子)
+│   └── test_new_ops.c         # 单元测试
+├── docs/
+│   └── updates/               # 开发记录
+├── Makefile
+├── README.md
+└── future.md                  # 未来发展规划
 ```
 
 ---
@@ -59,8 +67,9 @@ tvm_demo/
 
 | 文件 | 大小 | 内容 |
 |------|------|------|
-| `model_data.c` | ~429 行 | 静态描述表：16算子描述、9层调度表、12个张量映射、参数填充 |
-| `ops.c` | ~130 行 | 6种融合算子实现 + 包装函数 |
+| `model_data.c` | ~447 行 | 静态描述表：16算子描述、9层调度表、12个张量映射、参数填充 |
+| `ops.c` | ~300 行 | 15种算子实现 + 包装函数 |
+| `test_new_ops.c` | ~149 行 | 单元测试（14 项测试用例） |
 
 ---
 
@@ -256,6 +265,8 @@ Layer 9: 输出
 
 ### 5.7 `src/ops.c` (算子)
 
+#### 基础算子（6 种）
+
 | 函数 | 操作 |
 |------|------|
 | `tvmgen_default_fused_add()` | out = p0 + 1.0 |
@@ -264,7 +275,34 @@ Layer 9: 输出
 | `tvmgen_default_fused_add_3()` | out = p0 + p1 |
 | `tvmgen_default_fused_subtract()` | out = p0 - 2.0 |
 | `tvmgen_default_fused_subtract_1()` | out = p0 - 4.0 |
-| `wrapped_fused_*()` | 包装函数，适配统一签名 |
+
+#### 激活函数（4 种）
+
+| 函数 | 操作 |
+|------|------|
+| `tvmgen_default_relu()` | ReLU: max(0, x) |
+| `tvmgen_default_sigmoid()` | Sigmoid: 1 / (1 + exp(-x)) |
+| `tvmgen_default_tanh_op()` | Tanh: tanh(x) |
+| `tvmgen_default_relu6()` | ReLU6: min(max(0, x), 6) |
+
+#### 基础运算（3 种）
+
+| 函数 | 操作 |
+|------|------|
+| `tvmgen_default_multiply()` | out = p0 * p1 |
+| `tvmgen_default_maximum()` | out = max(p0, p1) |
+| `tvmgen_default_minimum()` | out = min(p0, p1) |
+
+#### 常量运算（2 种）
+
+| 函数 | 操作 |
+|------|------|
+| `tvmgen_default_mul_2()` | out = p0 * 2.0 |
+| `tvmgen_default_mul_half()` | out = p0 * 0.5 |
+
+#### 包装函数
+
+所有算子都有对应的 `wrapped_*()` 包装函数，适配统一签名。
 
 ---
 
@@ -415,8 +453,11 @@ static uint8_t global_workspace[64];  // 8个内存槽
 # 编译
 make all
 
-# 运行
+# 运行主程序（回归测试）
 make run
+
+# 运行单元测试
+make test
 
 # 清理
 make clean
@@ -622,26 +663,36 @@ A: 通过在 `model_data.c` 中将不同 SID 映射到相同的 workspace 偏移
 **Q: 如何验证内存复用是否正确？**
 A: 启用日志后，观察相同 `output@` 地址被多次写入时的 `result` 值变化
 
+**Q: 如何运行单元测试？**
+A: 使用 `make test` 运行 14 项新算子的单元测试
+
+**Q: 单元测试覆盖了哪些算子？**
+A: 激活函数（ReLU, Sigmoid, Tanh, ReLU6）、基础运算（Multiply, Maximum, Minimum）、常量运算（Mul2, MulHalf）
+
 ---
 
-## 13. 代码统计
-
 ```
-总计: ~1800 行代码（含注释）
+总计: ~2300 行代码（含注释）
 
 入口层:
-- main.c:           55 行
-- default_lib0.c:   67 行  
-- default_lib1.c:   87 行
+- main.c:           103 行
+- default_lib0.c:    64 行
+- default_lib1.c:    88 行
 
 Runtime 层:
-- tvmrt.h:         420 行
-- tvmrt.c:         389 行
-- tvmrt_port_posix.c: 200 行
+- tvmrt.h:          464 行
+- tvmrt.c:          401 行
+- tvmrt_port_posix.c: 135 行
 
 模型层:
-- model_data.c:    429 行
-- ops.c:           130 行
+- model_data.c:     447 行
+- ops.c:            300 行
+- test_new_ops.c:   149 行
+
+文档:
+- README.md:        700+ 行
+- future.md:        230+ 行
+- docs/updates/:    300+ 行
 ```
 
 ---
@@ -656,6 +707,8 @@ Runtime 层:
 
 ---
 
-**最后更新**: 2026-01-14
+**最后更新**: 2026-01-15
 **模型规格**: 16 算子 / 9 层 / 8 内存槽
+**算子总数**: 15 种
 **预期结果**: input=10.0 → output=235.0
+**单元测试**: 14 项全部通过

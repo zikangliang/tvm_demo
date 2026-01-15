@@ -49,6 +49,18 @@ extern int32_t wrapped_fused_add_2(void *args);      // p0 + 5
 extern int32_t wrapped_fused_add_3(void *args);      // p0 + p1
 extern int32_t wrapped_fused_subtract(void *args);   // p0 - 2
 extern int32_t wrapped_fused_subtract_1(void *args); // p0 - 4
+// Phase 1: 激活函数
+extern int32_t wrapped_relu(void *args);    // max(0, x)
+extern int32_t wrapped_sigmoid(void *args); // 1/(1+exp(-x))
+extern int32_t wrapped_tanh_op(void *args); // tanh(x)
+extern int32_t wrapped_relu6(void *args);   // min(max(0,x), 6)
+// Phase 2: 基础运算
+extern int32_t wrapped_multiply(void *args); // p0 * p1
+extern int32_t wrapped_maximum(void *args);  // max(p0, p1)
+extern int32_t wrapped_minimum(void *args);  // min(p0, p1)
+// Phase 3: 常量乘法
+extern int32_t wrapped_mul_2(void *args);    // p0 * 2
+extern int32_t wrapped_mul_half(void *args); // p0 * 0.5
 
 // ============================================================
 // 张量内存映射表 (8槽, 8字节对齐)
@@ -56,29 +68,25 @@ extern int32_t wrapped_fused_subtract_1(void *args); // p0 - 4
 // M0=ws[0], M1=ws[8], M2=ws[16], M3=ws[24]
 // M4=ws[32], M5=ws[40], M6=ws[48], M7=ws[56]
 
-static const tvmrt_tensor_map_entry_t g_model_tensor_map[MODEL_NUM_TENSORS] =
-    {
-        // 第一批 SID (Layer 1 产生)
-        {.sid = 1, .offset = 0, .size = 4, .align = 4},  // M0
-        {.sid = 2, .offset = 8, .size = 4, .align = 4},  // M1
-        {.sid = 3, .offset = 16, .size = 4, .align = 4}, // M2
-        {.sid = 4,
-         .offset = 24,
-         .size = 4,
-         .align = 4}, // M3
-                      // 第二批 SID (Layer 2 产生)
-        {.sid = 5, .offset = 32, .size = 4, .align = 4}, // M4
-        {.sid = 6,
-         .offset = 40,
-         .size = 4,
-         .align = 4}, // M5
-                      // 复用的 SID (Layer 3+)
-        {.sid = 7, .offset = 0, .size = 4, .align = 4},   // M0 复用
-        {.sid = 8, .offset = 8, .size = 4, .align = 4},   // M1 复用
-        {.sid = 9, .offset = 48, .size = 4, .align = 4},  // M6
-        {.sid = 10, .offset = 16, .size = 4, .align = 4}, // M2 复用
-        {.sid = 11, .offset = 24, .size = 4, .align = 4}, // M3 复用
-        {.sid = 12, .offset = 56, .size = 4, .align = 4}, // M7
+static const tvmrt_tensor_map_entry_t g_model_tensor_map[MODEL_NUM_TENSORS] = {
+    // 第一批 SID (Layer 1 产生)
+    {.sid = 1, .offset = 0, .size = 4, .align = 4},  // M0
+    {.sid = 2, .offset = 8, .size = 4, .align = 4},  // M1
+    {.sid = 3, .offset = 16, .size = 4, .align = 4}, // M2
+    {.sid = 4,
+     .offset = 24,
+     .size = 4,
+     .align = 4}, // M3
+                  // 第二批 SID (Layer 2 产生)
+    {.sid = 5, .offset = 32, .size = 4, .align = 4},  // M4
+    {.sid = 6, .offset = 40, .size = 4, .align = 4},  // M5
+                                                      // 复用的 SID (Layer 3+)
+    {.sid = 7, .offset = 0, .size = 4, .align = 4},   // M0 复用
+    {.sid = 8, .offset = 8, .size = 4, .align = 4},   // M1 复用
+    {.sid = 9, .offset = 48, .size = 4, .align = 4},  // M6
+    {.sid = 10, .offset = 16, .size = 4, .align = 4}, // M2 复用
+    {.sid = 11, .offset = 24, .size = 4, .align = 4}, // M3 复用
+    {.sid = 12, .offset = 56, .size = 4, .align = 4}, // M7
 };
 
 // ============================================================
@@ -247,15 +255,28 @@ static const tvmrt_op_desc_t g_model_op_descs[MODEL_NUM_OPS] = {
 // ============================================================
 
 static const tvmrt_op_func_t g_model_cpu_func_table[] = {
-    wrapped_fused_add,       // 索引 0: +1
-    wrapped_fused_add_1,     // 索引 1: +3
-    wrapped_fused_add_2,     // 索引 2: +5
-    wrapped_fused_add_3,     // 索引 3: +p1
-    wrapped_fused_subtract,  // 索引 4: -2
-    wrapped_fused_subtract_1 // 索引 5: -4
+    // 原有算子 (索引 0-5)
+    wrapped_fused_add,        // 索引 0: +1
+    wrapped_fused_add_1,      // 索引 1: +3
+    wrapped_fused_add_2,      // 索引 2: +5
+    wrapped_fused_add_3,      // 索引 3: p0+p1
+    wrapped_fused_subtract,   // 索引 4: -2
+    wrapped_fused_subtract_1, // 索引 5: -4
+    // Phase 1: 激活函数 (索引 6-9)
+    wrapped_relu,    // 索引 6: ReLU
+    wrapped_sigmoid, // 索引 7: Sigmoid
+    wrapped_tanh_op, // 索引 8: Tanh
+    wrapped_relu6,   // 索引 9: ReLU6
+    // Phase 2: 基础运算 (索引 10-12)
+    wrapped_multiply, // 索引 10: p0*p1
+    wrapped_maximum,  // 索引 11: max(p0,p1)
+    wrapped_minimum,  // 索引 12: min(p0,p1)
+    // Phase 3: 常量乘法 (索引 13-14)
+    wrapped_mul_2,    // 索引 13: p0*2
+    wrapped_mul_half, // 索引 14: p0*0.5
 };
 
-#define MODEL_CPU_FUNC_COUNT 6
+#define MODEL_CPU_FUNC_COUNT 15
 
 // ============================================================
 // 静态 BSP 调度表
@@ -272,8 +293,8 @@ static const int32_t g_model_layer8_ops[] = {14};         // 串行: M4+M5→M0
 static const int32_t g_model_layer9_ops[] = {
     15}; // 串行: M0+M7→output (依赖 Op14)
 
-static const tvmrt_schedule_layer_t
-    g_model_schedule_layers[MODEL_NUM_LAYERS] = {
+static const tvmrt_schedule_layer_t g_model_schedule_layers[MODEL_NUM_LAYERS] =
+    {
         {.op_indices = g_model_layer1_ops, .count = 4},
         {.op_indices = g_model_layer2_ops, .count = 2},
         {.op_indices = g_model_layer3_ops, .count = 2},
@@ -305,9 +326,7 @@ static const tvmrt_model_desc_t g_model_desc = {
 // 访问函数
 // ============================================================
 
-const tvmrt_model_desc_t *model_get_descriptor(void) {
-  return &g_model_desc;
-}
+const tvmrt_model_desc_t *model_get_descriptor(void) { return &g_model_desc; }
 
 const tvmrt_schedule_desc_t *model_get_schedule(void) {
   return &g_model_schedule;
@@ -324,8 +343,8 @@ static FusedAdd3Args g_model_dual_args[16];  // 双输入算子参数
 // 参数填充
 // ============================================================
 
-int model_fill_args(void *args, float *input, float *output,
-                           uint8_t *workspace, const uint8_t *const_workspace) {
+int model_fill_args(void *args, float *input, float *output, uint8_t *workspace,
+                    const uint8_t *const_workspace) {
   (void)args;
 
   // 内存槽指针
